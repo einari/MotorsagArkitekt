@@ -217,7 +217,7 @@ export const CREDITS_TEXT =
   '   *** MOTORSAG ARKITEKT ***   ' +
   'en KATTENE produksjon anno 2026 ....   ' +
   'musikk av kim_jensen ....   ' +
-  'kode, grafikk og effekter generert i en eneste natt ....   ' +
+  'kode, grafikk og effekter av einar_ingebrigtsen ....   ' +
   'skrevet i TypeScript med Three.js og WebGL ....   ' +
   'ekte sanntids demoscene-magi rett i nettleseren din ....   ' +
   'katter med motorsag .... hester paa jakt etter arkitektoppdrag .... og sjoelvsagt ROMSKIP! ....      ';
