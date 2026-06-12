@@ -1,9 +1,4 @@
-import {
-  CanvasTexture,
-  LinearFilter,
-  ClampToEdgeWrapping,
-  RepeatWrapping,
-} from 'three';
+import { CanvasTexture, LinearFilter, ClampToEdgeWrapping } from 'three';
 import { FullscreenFx } from '../core/FullscreenFx';
 import type { Frame } from '../core/Frame';
 import { FONTS } from '../core/config';
@@ -42,8 +37,11 @@ const FRAG = /* glsl */ `
     float ly = (vUv.y - (uBandY + yoff)) / uBandH; // -1..1 across band
     if (abs(ly) > 1.0) { gl_FragColor = vec4(0.0); return; }
 
-    // sample text: u from scrolling tx (wrap), v from band-local
-    float u = fract(tx / uTextAspect);
+    // Map to the strip WITHOUT wrapping: anything before the start or after the
+    // end of the message is empty, so the screen is genuinely blank until the
+    // text scrolls in from the right (and blank again once it exits left).
+    float u = tx / uTextAspect;
+    if (u < 0.0 || u > 1.0) { gl_FragColor = vec4(0.0); return; }
     float v = ly * 0.5 + 0.5;
     vec4 t = texture2D(uText, vec2(u, v));
 
@@ -81,7 +79,7 @@ export class SineScroller extends FullscreenFx {
     const fontSize = opts.fontSize ?? 96;
     const { canvas } = buildStrip(opts.text, fontSize);
     const texture = new CanvasTexture(canvas);
-    texture.wrapS = RepeatWrapping;
+    texture.wrapS = ClampToEdgeWrapping;
     texture.wrapT = ClampToEdgeWrapping;
     texture.minFilter = LinearFilter;
     texture.magFilter = LinearFilter;
@@ -106,9 +104,34 @@ export class SineScroller extends FullscreenFx {
     this.speed = opts.speed ?? 2.2;
   }
 
+  private wasActive = false;
+
   update(f: Frame): void {
     super.update(f);
-    this.uniforms.uScroll.value += this.speed * f.dt * (1 + f.audio.beatPulse * 0.15);
+    const active = this.opacity > 0.02;
+
+    // Width of the visible band in text-height units, and the message length in
+    // the same units (must match the shader's `unitsAcross` / `uTextAspect`).
+    const bandH = this.uniforms.uBandH.value as number;
+    const unitsAcross = f.aspect / (bandH * 2);
+    const msgLen = this.uniforms.uTextAspect.value as number;
+    // Start position: message entirely off the right edge => blank screen.
+    const startScroll = -unitsAcross;
+
+    // On (re)entry, rewind to the blank start so the message scrolls in fresh.
+    if (active && !this.wasActive) {
+      this.uniforms.uScroll.value = startScroll;
+    }
+
+    // Only advance while visible so it doesn't drift forward while hidden.
+    if (active) {
+      this.uniforms.uScroll.value += this.speed * f.dt * (1 + f.audio.beatPulse * 0.15);
+      // Once the whole message has scrolled off the left, loop back to blank.
+      if (this.uniforms.uScroll.value > msgLen) {
+        this.uniforms.uScroll.value = startScroll;
+      }
+    }
+    this.wasActive = active;
   }
 
   dispose(): void {
@@ -126,8 +149,9 @@ function buildStrip(text: string, fontSize: number): { canvas: HTMLCanvasElement
   const measure = document.createElement('canvas').getContext('2d')!;
   const font = `${fontSize}px ${FONTS.scroller}`;
   measure.font = font;
-  // add trailing spaces so the wrap has a gap
-  const padded = text + '          ';
+  // A little leading/trailing whitespace keeps the strip edges transparent; the
+  // long blank lead-in/out is handled structurally in update()/the shader.
+  const padded = `  ${text}  `;
   const w = Math.min(8192, Math.ceil(measure.measureText(padded).width) + pad);
   const h = Math.ceil(fontSize * 1.6);
 
