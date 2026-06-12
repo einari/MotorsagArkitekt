@@ -1,19 +1,3 @@
-import { FONTS } from '../core/config';
-
-/** Ensure the embedded webfonts are decoded before we rasterize to canvas. */
-export async function loadFonts(): Promise<void> {
-  const probes = [
-    `48px ${FONTS.heading}`,
-    `64px ${FONTS.scroller}`,
-  ];
-  try {
-    await Promise.all(probes.map((p) => (document as any).fonts.load(p)));
-    await (document as any).fonts.ready;
-  } catch {
-    /* fonts API not critical — fall back to whatever is available */
-  }
-}
-
 export interface TextStyle {
   font: string;
   size: number;

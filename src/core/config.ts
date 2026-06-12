@@ -7,7 +7,9 @@
  * the bar grid so everything lands on the beat.
  */
 export const MUSIC = {
-  url: 'assets/music.mp3',
+  // Prefixed with Vite's BASE_URL so it resolves correctly whether the demo is
+  // served from the domain root (dev) or a project subpath (GitHub Pages).
+  url: `${import.meta.env.BASE_URL}assets/music.mp3`,
   bpm: 129,
   /** Time (s) of the first kick / downbeat. */
   firstBeat: 0.408,

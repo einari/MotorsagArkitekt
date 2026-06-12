@@ -5,17 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>MOTORSAG ARKITEKT — a Kattene production</title>
     <style>
-      @font-face {
-        font-family: 'PressStart';
-        src: url('/assets/PressStart2P.ttf') format('truetype');
-        font-display: block;
-      }
-      @font-face {
-        font-family: 'VT323';
-        src: url('/assets/VT323.ttf') format('truetype');
-        font-display: block;
-      }
-
+      /* Fonts are registered at runtime via the FontFace API (see
+         src/text/fonts.ts) so Vite emits base-correct, fingerprinted URLs that
+         work on a GitHub Pages project subpath. The family names below resolve
+         once those faces finish loading. */
       :root { color-scheme: dark; }
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body {

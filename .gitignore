@@ -307,3 +307,6 @@ certificates/
 .grpc-schema-gen*
 .playwright-mcp
 .claude/worktrees
+
+# Vite build output
+dist/

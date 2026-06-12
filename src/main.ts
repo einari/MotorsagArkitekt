@@ -1,6 +1,6 @@
 import { Audio } from './core/Audio';
 import { Demo } from './core/Demo';
-import { loadFonts } from './text/canvasText';
+import { loadFonts } from './text/fonts';
 
 /**
  * Boot sequence:
