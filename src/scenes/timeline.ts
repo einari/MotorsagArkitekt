@@ -177,7 +177,15 @@ function verseBlock(t0: number, step: number): TextCue[] {
   ];
 }
 
-const STEP = 3.72; // 2 bars
+// ---- Measured vocal anchors (read off the demo with the "D" timecode HUD) ----
+//   first "Kattene"          -> 7.72s
+//   first "...er fantastisk" -> 32.0s
+// The verse lines sit between those two points; ~2.61s/line (≈1.4 bars) makes
+// the hook land exactly on the anchor. Same spacing is reused for the repeat.
+const V1_START = 7.72; // first "Kattene"
+const V1_HOOK = 32.0; // first "...er fantastisk!"
+const VERSE_STEP = (V1_HOOK - 6 - V1_START) / 7; // ≈2.61s; 8 verse lines fit before the bridge
+const V2_START = 66.0; // second "Kattene" (repeat) — refine from the HUD if needed
 
 export const TITLE_CUES: TextCue[] = [
   { start: 0.5, end: 4.2, text: 'KATTENE', style: titleStyle, y: 0.18, size: 0.26, anim: 'zoom', pulse: true },
@@ -190,26 +198,24 @@ export const TITLE_CUES: TextCue[] = [
   { start: OUTRO + 1.5, end: END, text: 'kim_jensen · 2026', style: { ...lyricStyle, font: 'VT323', size: 46 }, y: -0.5, size: 0.08 },
 ];
 
+/** The bridge + hook that close a verse block, anchored to the block's hook time. */
+function hookTail(hookTime: number, opts: { big?: boolean } = {}): TextCue[] {
+  const fantSize = opts.big ? 0.26 : 0.24;
+  return [
+    { start: hookTime - 3.4, end: hookTime - 2.0, text: 'nei · nei · nei', style: lyricPink, y: 0.0, size: 0.16, anim: 'pop', pulse: true },
+    { start: hookTime - 2.0, end: hookTime, text: 'men det vi vet er at romskip', style: lyricStyle, y: 0.15, size: 0.1, anim: 'slide' },
+    { start: hookTime, end: hookTime + 4.0, text: 'ER FANTASTISK!', style: hookStyle, y: -0.02, size: fantSize, anim: 'zoom', pulse: true },
+  ];
+}
+
 export const LYRIC_CUES: TextCue[] = [
-  // build / verse 1
-  ...verseBlock(bar(4), STEP),
-  // "nei nei nei" tail just before the drop
-  { start: bar(18), end: DROP - 0.2, text: 'nei · nei · nei', style: lyricPink, y: 0.0, size: 0.16, anim: 'pop', pulse: true },
+  // ---- Verse 1 (build): Kattene 7.72s … hook 32s ----
+  ...verseBlock(V1_START, VERSE_STEP),
+  ...hookTail(V1_HOOK),
 
-  // ---- DROP: the hook ----
-  { start: DROP, end: DROP + 2.2, text: 'men det vi vet er at romskip', style: lyricStyle, y: 0.15, size: 0.1, anim: 'slide' },
-  { start: DROP + 2.2, end: DROP + 8, text: 'ER FANTASTISK!', style: hookStyle, y: -0.02, size: 0.24, anim: 'zoom', pulse: true },
-  { start: DROP + 12, end: DROP + 14.5, text: 'romskip!', style: hookStyle, y: 0.0, size: 0.2, anim: 'pop', pulse: true },
-  { start: DROP + 20, end: DROP + 24, text: 'ER FANTASTISK!', style: hookStyle, y: 0.0, size: 0.22, anim: 'zoom', pulse: true },
-
-  // ---- verse 2 (repeat) ----
-  ...verseBlock(DROP2 + 2, STEP),
-  { start: DROP2 + 2 + 8 * STEP, end: BREAK2 - 0.3, text: 'nei · nei · nei', style: lyricPink, y: 0.0, size: 0.16, anim: 'pop', pulse: true },
-
-  // ---- finale: hook again ----
-  { start: FINALE, end: FINALE + 2, text: 'men det vi vet er at romskip', style: lyricStyle, y: 0.15, size: 0.1, anim: 'slide' },
-  { start: FINALE + 2, end: FINALE + 8, text: 'ER FANTASTISK!', style: hookStyle, y: -0.02, size: 0.26, anim: 'zoom', pulse: true },
-  { start: FINALE + 11, end: OUTRO, text: 'romskip · romskip · romskip', style: hookStyle, y: 0.0, size: 0.14, anim: 'pop', pulse: true },
+  // ---- Verse 2 (repeat) ----
+  ...verseBlock(V2_START, VERSE_STEP),
+  ...hookTail(V2_START + 7 * VERSE_STEP + 6, { big: true }),
 ];
 
 // ---- Scroller texts ----

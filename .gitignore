@@ -310,3 +310,8 @@ certificates/
 
 # Vite build output
 dist/
+
+# Yarn PnP (project uses npm — keep these out)
+.pnp.*
+.yarn/
+yarn.lock
