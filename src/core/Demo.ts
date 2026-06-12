@@ -47,6 +47,7 @@ export class Demo {
   private frameCount = 0;
   private lastTs = 0;
   private running = false;
+  private hud: HTMLDivElement;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -71,8 +72,36 @@ export class Demo {
     this.director = new Director(this.layers, this.fade, this.crt);
     this.compositor.active = this.director.ordered();
 
+    this.hud = this.makeHud();
+
     this.resize();
     window.addEventListener('resize', () => this.resize());
+  }
+
+  /**
+   * Toggleable timecode HUD (press "D"). Shows the song clock so lyric/effect
+   * cues can be read off the running demo. Hidden by default; never affects the
+   * render. Also logs the time on Space, to jot down anchor points.
+   */
+  private makeHud(): HTMLDivElement {
+    const el = document.createElement('div');
+    el.style.cssText = [
+      'position:fixed', 'left:8px', 'bottom:8px', 'z-index:20',
+      'font:600 14px/1.4 ui-monospace,Menlo,monospace',
+      'color:#6ee7ff', 'background:rgba(8,4,20,0.6)', 'padding:4px 8px',
+      'border:1px solid #2bd4ff', 'border-radius:4px', 'pointer-events:none',
+      'text-shadow:0 0 6px #2bd4ff', 'display:none', 'white-space:pre',
+    ].join(';');
+    document.body.appendChild(el);
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'd' || e.key === 'D') {
+        el.style.display = el.style.display === 'none' ? 'block' : 'none';
+      } else if (e.key === ' ') {
+        // eslint-disable-next-line no-console
+        console.log(`⏱ ${this.audio.time.toFixed(2)}s`);
+      }
+    });
+    return el;
   }
 
   private add(layer: Layer): void {
@@ -201,6 +230,13 @@ export class Demo {
     this.fade.update(f);
 
     this.compositor.render(f);
+
+    if (this.hud.style.display !== 'none') {
+      const t = f.time;
+      const mm = Math.floor(t / 60);
+      const ss = (t % 60).toFixed(2).padStart(5, '0');
+      this.hud.textContent = `t = ${t.toFixed(2)}s   (${mm}:${ss})\n[D] hide  ·  [Space] log time`;
+    }
 
     requestAnimationFrame(this.loop);
   };
