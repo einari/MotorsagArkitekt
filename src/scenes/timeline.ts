@@ -222,7 +222,7 @@ export const LYRIC_CUES: TextCue[] = [
 export const CREDITS_TEXT =
   '   *** MOTORSAG ARKITEKT ***   ' +
   'en KATTENE produksjon anno 2026 ....   ' +
-  'musikk av kim_jensen ....   ' +
+  'musikk av kim_jensen vis Suno....   ' +
   'kode, grafikk og effekter av claude - promptmaster 2000; einar_ingebrigtsen ....   ' +
   'skrevet i TypeScript med Three.js og WebGL ....   ' +
   'ekte sanntids demoscene-magi rett i nettleseren din ....   ' +
