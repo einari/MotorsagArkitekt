@@ -84,7 +84,7 @@ export class Audio {
     this.source.buffer = this.buffer;
     this.source.connect(this.analyser);
     this.startTime = this.ctx.currentTime;
-    this.source.start(0);
+    this.source.start();
     this.started = true;
   }
 
