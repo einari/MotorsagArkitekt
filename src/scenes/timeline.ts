@@ -54,6 +54,16 @@ const FINALE = 96;
 const OUTRO = 114;
 const END = 118;
 
+// ---- Measured vocal anchors (read off the demo with the "D" timecode HUD) ----
+//   first "Kattene"          -> 7.72s
+//   first "...er fantastisk" -> 32.0s
+// The verse lines sit between those two points; ~2.61s/line (≈1.4 bars) makes
+// the hook land exactly on the anchor. Same spacing is reused for the repeat.
+export const V1_START = 7.72; // first "Kattene"
+const V1_HOOK = 32.0; // first "...er fantastisk!"
+export const VERSE_STEP = (V1_HOOK - 6 - V1_START) / 7; // ≈2.61s; 8 verse lines fit before the bridge
+const V2_START = 66.0; // second "Kattene" (repeat) — refine from the HUD if needed
+
 export const LAYER_CUES: LayerCue[] = [
   // ---- Intro (0–4): starfield + copper behind the title ----
   { layer: 'starfield', in: 0, out: DROP, fadeIn: 1.5 },
@@ -62,7 +72,7 @@ export const LAYER_CUES: LayerCue[] = [
   // ---- Build / verse (4–36): plasma bed, cats & horses, magic circles ----
   { layer: 'plasma', in: INTRO_END, out: DROP, fadeIn: 2, level: 0.9 },
   { layer: 'catFlock', in: bar(4), out: DROP, fadeIn: 1 },
-  { layer: 'horseFlock', in: bar(10), out: DROP, fadeIn: 1 },
+  { layer: 'horseFlock', in: V1_START + 3 * VERSE_STEP, out: DROP, fadeIn: 0.5 },
   { layer: 'magicCircles', in: bar(8), out: DROP, fadeIn: 2, level: 0.8 },
 
   // ---- DROP / chorus (36–64): outrun grid + 3D spaceships ----
@@ -177,16 +187,6 @@ function verseBlock(t0: number, step: number): TextCue[] {
   ];
 }
 
-// ---- Measured vocal anchors (read off the demo with the "D" timecode HUD) ----
-//   first "Kattene"          -> 7.72s
-//   first "...er fantastisk" -> 32.0s
-// The verse lines sit between those two points; ~2.61s/line (≈1.4 bars) makes
-// the hook land exactly on the anchor. Same spacing is reused for the repeat.
-const V1_START = 7.72; // first "Kattene"
-const V1_HOOK = 32.0; // first "...er fantastisk!"
-const VERSE_STEP = (V1_HOOK - 6 - V1_START) / 7; // ≈2.61s; 8 verse lines fit before the bridge
-const V2_START = 66.0; // second "Kattene" (repeat) — refine from the HUD if needed
-
 export const TITLE_CUES: TextCue[] = [
   { start: 0.5, end: 4.2, text: 'KATTENE', style: titleStyle, y: 0.18, size: 0.26, anim: 'zoom', pulse: true },
   { start: 0.5, end: 4.2, text: 'presenterer', style: { ...lyricStyle, font: 'VT323', size: 54, glow: PALETTE.cyan }, y: -0.05, size: 0.1, anim: 'fade' },
@@ -222,9 +222,8 @@ export const LYRIC_CUES: TextCue[] = [
 export const CREDITS_TEXT =
   '   *** MOTORSAG ARKITEKT ***   ' +
   'en KATTENE produksjon anno 2026 ....   ' +
-  'musikk av kim_jensen vis Suno....   ' +
+  'musikk av kim_jensen fremsummet fra suno sine dybder....   ' +
   'kode, grafikk og effekter av claude - promptmaster 2000; einar_ingebrigtsen ....   ' +
-  'skrevet i TypeScript med Three.js og WebGL ....   ' +
   'ekte sanntids demoscene-magi rett i nettleseren din ....   ' +
   'katter med motorsag .... hester paa jakt etter arkitektoppdrag .... og sjoelvsagt ROMSKIP! ....      ';
 
