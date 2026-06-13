@@ -75,6 +75,12 @@ export class Audio {
   }
 
   async unlock(): Promise<void> {
+    // iOS routes Web Audio into the "ambient" session by default, which is
+    // silenced by the hardware Ring/Silent switch (Safari still shows the tab
+    // sound indicator, but nothing is audible). Asking for the "playback"
+    // category makes it play like media audio. Safari 16.4+; ignored elsewhere.
+    const audioSession = (navigator as unknown as { audioSession?: { type: string } }).audioSession;
+    if (audioSession) audioSession.type = 'playback';
     if (this.ctx.state === 'suspended') await this.ctx.resume();
   }
 
