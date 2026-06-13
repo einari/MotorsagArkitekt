@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Kattene — a synthwave demoscene production. Cats with chainsaws, architecture-seeking horses, and spaceships.",
   "type": "module",
+  "packageManager": "yarn@4.14.1",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

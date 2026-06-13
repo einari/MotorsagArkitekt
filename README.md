@@ -14,15 +14,15 @@ scenes, all finished off with a CRT post-processing filter.
 ## Develop
 
 ```bash
-npm install
-npm run dev      # http://localhost:5173
+yarn
+yarn dev      # http://localhost:5173
 ```
 
 ## Build
 
 ```bash
-npm run build    # type-checks, then outputs static files to dist/
-npm run preview  # serve the production build locally
+yarn build    # type-checks, then outputs static files to dist/
+yarn preview  # serve the production build locally
 ```
 
 ## Deployment (GitHub Pages)
@@ -30,7 +30,7 @@ npm run preview  # serve the production build locally
 Every push to `main` is built and published to GitHub Pages automatically by
 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml):
 
-1. `npm ci` + `npm run build` produce `dist/`.
+1. `yarn install --immutable` + `yarn build` produce `dist/`.
 2. `dist/` is uploaded as a Pages artifact and deployed.
 
 Pages is configured with **Source = GitHub Actions** (no `gh-pages` branch).
