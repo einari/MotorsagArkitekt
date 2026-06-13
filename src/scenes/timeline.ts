@@ -183,19 +183,19 @@ function verseBlock(t0: number, step: number): TextCue[] {
     L(4, 'de søker arkitektoppdrag', lyricStyle, { size: 0.11 }),
     L(5, '( oohh )', oohStyle, { size: 0.13, y: 0.0 }),
     L(6, 'hvorfor det?', lyricStyle, { size: 0.13 }),
-    L(7, 'det er faktisk ikke godt å si', lyricStyle, { size: 0.1 }),
+    L(7, 'det er faktisk ikke godt å si', lyricStyle, { size: 0.13 }),
   ];
 }
 
 export const TITLE_CUES: TextCue[] = [
   { start: 0.5, end: 4.2, text: 'KATTENE', style: titleStyle, y: 0.18, size: 0.26, anim: 'zoom', pulse: true },
-  { start: 0.5, end: 4.2, text: 'presenterer', style: { ...lyricStyle, font: 'VT323', size: 54, glow: PALETTE.cyan }, y: -0.05, size: 0.1, anim: 'fade' },
-  { start: 1.4, end: 4.2, text: 'MOTORSAG ARKITEKT', style: { ...lyricStyle, size: 40 }, y: -0.45, size: 0.075, anim: 'slide' },
+  { start: 0.5, end: 4.2, text: 'presenterer', style: { ...lyricStyle, font: 'VT323', size: 54, glow: PALETTE.cyan }, y: -0.05, size: 0.13, anim: 'fade' },
+  { start: 1.4, end: 4.2, text: 'MOTORSAG ARKITEKT', style: { ...lyricStyle, size: 40 }, y: -0.45, size: 0.098, anim: 'slide' },
 
   // end card
   { start: OUTRO + 0.5, end: END, text: 'TUSEN TAKK', style: titleStyle, y: 0.2, size: 0.22, anim: 'zoom', pulse: true },
   { start: OUTRO + 1.0, end: END, text: 'romskip er fantastisk', style: { ...lyricStyle, font: 'VT323', size: 60, glow: PALETTE.cyan }, y: -0.05, size: 0.11 },
-  { start: OUTRO + 1.5, end: END, text: 'kim_jensen · 2026', style: { ...lyricStyle, font: 'VT323', size: 46 }, y: -0.5, size: 0.08 },
+  { start: OUTRO + 1.5, end: END, text: 'kim_jensen · 2026', style: { ...lyricStyle, font: 'VT323', size: 46 }, y: -0.5, size: 0.10 },
 ];
 
 /** The bridge + hook that close a verse block, anchored to the block's hook time. */
@@ -203,7 +203,7 @@ function hookTail(hookTime: number, opts: { big?: boolean } = {}): TextCue[] {
   const fantSize = opts.big ? 0.26 : 0.24;
   return [
     { start: hookTime - 3.4, end: hookTime - 2.0, text: 'nei · nei · nei', style: lyricPink, y: 0.0, size: 0.16, anim: 'pop', pulse: true },
-    { start: hookTime - 2.0, end: hookTime, text: 'men det vi vet er at romskip', style: lyricStyle, y: 0.15, size: 0.1, anim: 'slide' },
+    { start: hookTime - 2.0, end: hookTime, text: 'men det vi vet er at romskip', style: lyricStyle, y: 0.15, size: 0.13, anim: 'slide' },
     { start: hookTime, end: hookTime + 4.0, text: 'ER FANTASTISK!', style: hookStyle, y: -0.02, size: fantSize, anim: 'zoom', pulse: true },
   ];
 }
