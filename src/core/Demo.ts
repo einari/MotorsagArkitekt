@@ -164,7 +164,7 @@ export class Demo {
       new SineScroller({
         name: 'scroller',
         text: CREDITS_TEXT,
-        speed: 2.4,
+        speed: 3,
         bandY: 0.13,
         amp: 0.05,
         freq: 0.5,
@@ -175,7 +175,7 @@ export class Demo {
       new SineScroller({
         name: 'greets',
         text: GREETS_TEXT,
-        speed: 3.0,
+        speed: 3.3,
         bandY: 0.13,
         amp: 0.07,
         freq: 0.6,

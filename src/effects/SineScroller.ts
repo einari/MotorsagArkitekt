@@ -152,7 +152,7 @@ function buildStrip(text: string, fontSize: number): { canvas: HTMLCanvasElement
   // A little leading/trailing whitespace keeps the strip edges transparent; the
   // long blank lead-in/out is handled structurally in update()/the shader.
   const padded = `  ${text}  `;
-  const w = Math.min(8192, Math.ceil(measure.measureText(padded).width) + pad);
+  const w = Math.min(16384, Math.ceil(measure.measureText(padded).width) + pad);
   const h = Math.ceil(fontSize * 1.6);
 
   const canvas = document.createElement('canvas');
