@@ -220,12 +220,12 @@ export const LYRIC_CUES: TextCue[] = [
 
 // ---- Scroller texts ----
 export const CREDITS_TEXT =
-  '   *** MOTORSAG ARKITEKT ***   ' +
-  'en KATTENE produksjon anno 2026 ....   ' +
-  'musikk av kim_jensen fremsummet fra suno sine dybder....   ' +
-  'kode, grafikk og effekter av claude - promptmaster 2000; einar_ingebrigtsen ....   ' +
-  'ekte sanntids demoscene-magi rett i nettleseren din ....   ' +
-  'katter med motorsag .... hester paa jakt etter arkitektoppdrag .... og sjoelvsagt ROMSKIP! ....      ';
+  '*** MOTORSAG ARKITEKT *** ' +
+  'en KATTENE produksjon anno 2026 .' +
+  'musikk av kim_jensen fremsummet fra suno sine dybder.... ' +
+  'kode, grafikk og effekter av claude - promptmaster 2000; einar_ingebrigtsen .... ' +
+  'ekte sanntids demoscene-magi rett i nettleseren din. ' +
+  'katter med motorsag - hester paa jakt etter arkitektoppdrag - og sjoelvsagt ROMSKIP! ....      ';
 
 export const GREETS_TEXT =
   '   GREETINGS FLY OUT TO ALL THE LEGENDS OF THE SCENE !!   ' +
