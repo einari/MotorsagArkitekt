@@ -11,6 +11,11 @@ Classic Amiga/C64 effects (plasma, copper bars, raster tunnel, starfield,
 metaball bobs, rotozoomed moiré, an outrun grid, a sine scroller) mixed with 3D
 scenes, all finished off with a CRT post-processing filter.
 
+> 🕹️ There is also a **real Commodore 64 port** in [`C64/`](C64/) — hand-written
+> 6510 assembly with a proper 3-voice **SID** rendition of the soundtrack,
+> copper bars, hardware sprites and a sine scroller. It builds to a `.prg` /
+> `.d64` you can run on a C64 or emulator. See [`C64/README.md`](C64/README.md).
+
 ## Develop
 
 ```bash
