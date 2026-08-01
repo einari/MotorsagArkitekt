@@ -163,23 +163,30 @@ assert len(SONG) == 64, len(SONG)
 # ---------------------------------------------------------------------------
 #  Voice 1 — drums + lead melody
 # ---------------------------------------------------------------------------
-# the sung verse melody, bar-aligned (15 bars over VERSE)
+# The sung verse melody, transcribed with the autocorrelation tracker
+# (see prompt: contour and pitch classes follow the recorded vocal):
+#   "Kattene"      F#4 G4 F#4 -> B3      "motorsag" lands on a held C4
+#   "(oohh)"       high held C5->B4 / B4
+#   "Hestene"      F#4 G4 F#4 -> D4      "...oppdrag" held B3 over G
+#   "hvorfor det"  C5 C5 B4
+#   "nei nei nei"  repeated B3
+#   hook "er fan-tas-tisk" = stepwise DESCENT A4 G4 F#4 -> E4 (E major)
 VERSE_LEAD = [
-    ['.',   'f#4', 'f#4', 'g4', 'e4', '-',  '-', '-'],   # Em  "Kat-te-ne"
-    ['.',   '.',   'e4', 'd4',  'b3', '-',  'S', '.'],   # Em
-    ['c4', 'c4', 'c4', 'b3',    'a3', '-',  '-', '-'],   # Am  "motorsag"
-    ['.',   '.',  'a3', 'b3',   'c4', 'e4', 'd4', '.'],  # Am
-    ['d4', 'd4', 'd4', 'e4',    'f#4', '-', '-', '-'],   # D   "Hestene"
-    ['.',   '.', 'f#4', 'e4',   'd4', 'b3', 'S', '.'],   # D
-    ['b3', 'g3', 'b3', 'd4',    'g4', '-',  '-', '-'],   # G   "arkitekt-"
-    ['.',  'f#4', 'd#4', 'b3',  'f#4', '-', 'S', '.'],   # B7
-    ['c5', 'c5', 'b4', 'g4',    'e4', '-',  '-', '-'],   # C   "hvorfor det"
-    ['.',   '.',  'g4', 'a4',   'b4', 'g4', 'e4', '.'],  # C
-    ['a4', '-',  'a4', '-',     'a4', '-',  'S', '.'],   # Am  "nei nei nei"
-    ['.',  'c5', 'b4', 'a4',    'e4', '-',  'S', '.'],   # Am
-    ['c4', 'c4', 'e4', 'g4',    'a4', 'b4', 'c5', 'b4'], # C   rising run
-    ['f#4', '-', 'f#4', 'g#4',  'a4', '-',  'b4', '-'],  # B7  "er fan-tas-"
-    ['g#4', '-', '-', '-',      'e4', '-',  '-', '-'],   # E   "-tisk!"
+    ['f#4', '-', 'g4', 'f#4',  'b3', '-',  '-',  '-'],   # Em  "Kat-te-ne"
+    ['.',  'b3', 'c4', 'b3',   'g3', 'b3', 'd4', 'c4'],  # Em  "de leker seg med mo-tor-"
+    ['c4', '-',  '-',  '-',    '-',  '-',  'S',  '.'],   # Am  "-sag" (held)
+    ['c5', '-',  '-',  '-',    'b4', '-',  '-',  '-'],   # Am  "(oohh)" high
+    ['f#4', '-', 'g4', 'f#4',  'd4', '-',  '-',  '-'],   # D   "Hes-te-ne"
+    ['.',  'd4', 'd4', 'd4',   'e4', 'f#4', 'e4', 'd4'], # D   "de soeker arki-"
+    ['b3', '-',  '-',  '-',    '-',  '-',  'S',  '.'],   # G   "-tektoppdrag" (held)
+    ['b4', '-',  '-',  '-',    '-',  '-',  '-',  '-'],   # B7  "(oohh)" high
+    ['c5', '-',  'c5', '-',    'b4', '-',  '-',  '-'],   # C   "hvor-for det"
+    ['.',  '.',  'a4', 'a4',   'a4', 'g4', 'e4', 'd4'],  # C   "det er faktisk..."
+    ['b3', '-',  '-',  '.',    '.',  '.',  'S',  '.'],   # Am  "...aa si"
+    ['b3', '-',  'b3', '-',    'b3', '-',  'S',  '.'],   # Am  "nei nei nei"
+    ['c4', 'c4', 'c4', 'b3',   'c4', 'c4', 'b3', 'b3'],  # C   "men det vi vet..."
+    ['a4', '-',  'g4', '-',    'f#4', '-', '-',  '-'],   # B7  "er fan-tas-"
+    ['e4', '-',  '-',  '-',    '-',  '-',  '-',  '-'],   # E   "-tisk!" (held)
 ]
 DRUM_BAR = ['K', 'H', 'S', 'H', 'K', 'H', 'S', 'H']
 DRUM_FILL = ['K', 'H', 'S', 'H', 'S', 'S', 'S', 'S']
@@ -200,8 +207,8 @@ FINALE_LEAD = [
     ['d5', 'd5', 'S', 'e5',  'f#5', '-', 'S', '-'],      # D
     ['f#5', 'e5', 'S', 'd5', 'a4', 'd5', 'S', 'e5'],     # D
     ['g5', '-',  'S', 'd5',  'b4', 'd5', 'S', 'g4'],     # G
-    ['f#5', '-', 'S', 'd#5', 'b4', 'a4', 'S', 'f#4'],    # B7
-    ['g#5', '-', 'S', '-',   'e5', '-',  'S', '-'],      # E
+    ['a5', '-',  'S', 'g5',  'f#5', '-', 'S', '-'],      # B7  hook descent, big
+    ['e5', '-',  'S', '-',   'e5', '-',  'S', '-'],      # E   "-tisk!"
     ['b4', 'e5', 'S', 'g#5', 'b5', '-',  'S', '-'],      # E
 ]
 
@@ -219,8 +226,8 @@ for b in DROP_LEAD:                                # 28-33 drop lead + snare
 v1.hold('e4', 2, PAD)                              # 34-35 break "oohh"
 for b in VERSE_LEAD[:12]:                          # 36-47 verse 2
     v1.bar8(b, LEAD)
-v1.bar8(['c4', 'e4', 'a4', 'b4', 'f#4', 'g#4', 'a4', 'b4'], LEAD)  # 48 C/B7
-v1.bar8(['g#4', '-', '-', '-', 'e4', '-', '-', '-'], LEAD)         # 49 E
+v1.bar8(['c4', 'c4', 'b3', 'c4', 'a4', '-', 'g4', 'f#4'], LEAD)  # 48 C/B7 hook
+v1.bar8(['e4', '-', '-', '-', '-', '-', '-', '-'], LEAD)         # 49 E "-tisk!"
 v1.hold('b4', 1, PAD)                              # 50 hook rings out
 for b in FINALE_LEAD:                              # 51-60 finale
     v1.bar8(b, LEAD2)
