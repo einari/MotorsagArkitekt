@@ -82,6 +82,9 @@ exp_dst  = $40
 cfgrow   = $42                  ; active sprite-config row
 scrhalf  = $43                  ; big scroller: which glyph half is next
 dcueidx  = $44                  ; next vocal-digi cue
+lrow     = $45                  ; lyric-line draw state
+lcol     = $46
+llen     = $47
 
 SPLIT_TOP   = 50                ; first split raster line
 SCROLL_LINE = 233               ; where the scroller split fires
@@ -834,7 +837,17 @@ verse_update:
         lda vbar
         cmp #4
         bne .vb
-        rts
+        ; ---- lyrics get a black raster band so they stay readable
+        ;      over the bars (splits 11-20 cover text rows 2-9) ----
+        lda wsn
+        beq +
+        ldx #11
+        lda #0
+-       sta split_col,x
+        inx
+        cpx #21
+        bne -
++       rts
 
 bar_phase !byte 0, 96, 160, 224
 
@@ -1157,16 +1170,23 @@ do_cues:.next:  ldx cueidx
         beq .done
         cmp bar
         bne .chk
+        ; a cue fires: wipe the previous words/lines, then draw this one
         lda cue_act,x
-        cmp #$fe
-        beq .clr
         pha
         jsr clear_words
         pla
-        ldy #2                  ; cue words live on rows 2-3
+        cmp #$fe                ; $fe = lines only, no big word
+        beq .lines
+        ldy #2                  ; big words live on rows 2-3
         jsr draw_word
-        jmp .adv
-.clr:   jsr clear_words
+.lines: ldx cueidx
+        lda cue_l1,x
+        ldy #6
+        jsr draw_line
+        ldx cueidx
+        lda cue_l2,x
+        ldy #8
+        jsr draw_line
 .adv:   inc cueidx
         jmp .next
 .chk:   bcs .done               ; cue bar > current bar -> wait
@@ -1281,6 +1301,52 @@ word_recolor:
         cpx wsn
         bne .wr_word
 .wr_done:
+        rts
+
+; ---- draw a lyric line: A = line id ($ff = none), Y = row ----
+;      Centred, and registered as a slot so the next cue clears it and
+;      the tunnel scene's colour cycling does not eat it.
+!zone
+draw_line:
+        cmp #$ff
+        beq .dl_done
+        sty lrow
+        tax
+        lda line_lo,x
+        sta zp_src
+        lda line_hi,x
+        sta zp_src+1
+        ldy #0
+-       lda (zp_src),y          ; measure it
+        beq +
+        iny
+        bne -
++       sty llen
+        tya
+        lsr
+        sta tmp
+        lda #20                 ; centre: col = 20 - len/2
+        sec
+        sbc tmp
+        sta lcol
+        ldx wsn                 ; register the slot
+        cpx #4
+        bcs +
+        lda lrow
+        sta ws_row,x
+        lda lcol
+        sta ws_col,x
+        lda llen
+        sta ws_w,x
+        lda #$0f
+        sta ws_colr,x
+        inc wsn
++       lda #$0f
+        sta textcol
+        ldx lrow
+        ldy lcol
+        jsr draw_text
+.dl_done:
         rts
 
 ; ---- draw a big word: A = word id, Y = top row ----
@@ -2079,14 +2145,53 @@ scn_ini_hi !byte >intro_init,>verse_init,>drop_init,>tunnel_init,>finale_init,>o
 scn_upd_lo !byte <intro_update,<verse_update,<drop_update,<tunnel_update,<finale_update,<outro_update
 scn_upd_hi !byte >intro_update,>verse_update,>drop_update,>tunnel_update,>finale_update,>outro_update
 
-; ---- word cue list (bar, action) ----
-cue_bar !byte 4,  6,  7,  8,  10, 11, 12, 15, 16, 17, 19
-        !byte 36, 38, 39, 40, 42, 43, 44, 47, 48, 49
+; ---- lyric cues: bar, big word ($fe = none), two text lines ($ff = none)
+;      The whole verse is sung on screen, on the bars the vocal lands on.
+cue_bar !byte 4,  7,  8,  11, 12, 13, 15, 16, 17, 20
+        !byte 36, 39, 40, 43, 44, 45, 47, 48, 49, 51
         !byte $ff
-cue_act !byte WORD_KATTENE, $fe, WORD_OOHH, WORD_HESTENE, $fe, WORD_OOHH, $fe
-        !byte WORD_NEI, WORD_ROMSKIP, WORD_FANTASTISK, $fe
-        !byte WORD_KATTENE, $fe, WORD_OOHH, WORD_HESTENE, $fe, WORD_OOHH, $fe
-        !byte WORD_NEI, WORD_ROMSKIP, WORD_FANTASTISK
+cue_act !byte WORD_KATTENE, WORD_OOHH, WORD_HESTENE, WORD_OOHH, $fe
+        !byte $fe, WORD_NEI, $fe, WORD_FANTASTISK, $fe
+        !byte WORD_KATTENE, WORD_OOHH, WORD_HESTENE, WORD_OOHH, $fe
+        !byte $fe, WORD_NEI, $fe, WORD_FANTASTISK, $fe
+cue_l1  !byte L_LEKER, $ff, L_SOEKER, $ff, L_HVORFOR
+        !byte L_FAKTISK, $ff, L_MENVET, L_ERFANT, $ff
+        !byte L_LEKER, $ff, L_SOEKER, $ff, L_HVORFOR
+        !byte L_FAKTISK, $ff, L_MENVET, L_ERFANT, $ff
+cue_l2  !byte L_MOTORSAG, $ff, L_OPPDRAG, $ff, $ff
+        !byte L_GODT, $ff, L_ROMSKIP, $ff, $ff
+        !byte L_MOTORSAG, $ff, L_OPPDRAG, $ff, $ff
+        !byte L_GODT, $ff, L_ROMSKIP, $ff, $ff
+
+; ---- lyric lines ----
+L_LEKER=0 : L_MOTORSAG=1 : L_SOEKER=2 : L_OPPDRAG=3 : L_HVORFOR=4
+L_FAKTISK=5 : L_GODT=6 : L_MENVET=7 : L_ROMSKIP=8 : L_ERFANT=9
+
+line_lo !byte <ln_leker,<ln_motorsag,<ln_soeker,<ln_oppdrag,<ln_hvorfor
+        !byte <ln_faktisk,<ln_godt,<ln_menvet,<ln_romskip,<ln_erfant
+line_hi !byte >ln_leker,>ln_motorsag,>ln_soeker,>ln_oppdrag,>ln_hvorfor
+        !byte >ln_faktisk,>ln_godt,>ln_menvet,>ln_romskip,>ln_erfant
+
+ln_leker    !scr "de leker seg"
+            !byte 0
+ln_motorsag !scr "med motorsag"
+            !byte 0
+ln_soeker   !scr "de soeker"
+            !byte 0
+ln_oppdrag  !scr "arkitektoppdrag"
+            !byte 0
+ln_hvorfor  !scr "hvorfor det?"
+            !byte 0
+ln_faktisk  !scr "det er faktisk"
+            !byte 0
+ln_godt     !scr "ikke godt aa si"
+            !byte 0
+ln_menvet   !scr "men det vi vet"
+            !byte 0
+ln_romskip  !scr "er at romskip"
+            !byte 0
+ln_erfant   !scr "er fantastisk!"
+            !byte 0
 
 ; ---- big words ----
 WORD_KATTENE    = 0
