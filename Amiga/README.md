@@ -66,8 +66,11 @@ bars  8-19  horses + magic circle   bars 61-63  TUSEN TAKK ... and loop
 bars 20-33  sunset, vector ships
 ```
 
-Verified by driving FS-UAE (A500, PAL, Kickstart 1.3) from the build
-scripts and reading back screenshots of each scene.
+The title, copper-bar verse (both casts), the lyrics, the DYCP scroller
+and the vector-ship drop were verified by driving FS-UAE (A500, PAL,
+Kickstart 1.3) and reading back screenshots; the tunnel, finale and
+outro run on the same copper/bob code paths but have not been captured
+frame-by-frame yet.
 
 ## Build
 
