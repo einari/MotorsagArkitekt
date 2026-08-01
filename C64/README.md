@@ -10,15 +10,24 @@ It runs on a real breadbox C64 (PAL) or any emulator (VICE, etc.).
 
 ```
 bars  0-3   INTRO   big KATTENE / MOTORSAG ARKITEKT logo, starfield
-bars  4-19  VERSE   glowing copper bars bobbing on sines, chainsaw
-                    cats & architect horses, big lyric words, credits
+bars  4-7   VERSE A glowing copper bars bobbing on sines, six chainsaw
+                    cats (4-frame saw animation), big lyric words
+bars  8-19  VERSE B the architect horses take over, "magic circle"
+                    rune-ring sprites drift by, credits scroller
 bars 20-33  DROP    outrun grid: banded sun, city skyline, horizon
-                    lines rushing at you, spaceships
+                    lines rushing at you — spaceships only, engine
+                    flares pulsing
 bars 34-50  TUNNEL  colour-cycled ring tunnel, dancer silhouettes,
                     glowing bobs, verse 2 words, greetings
 bars 51-60  FINALE  grid + rainbow copper sky + the whole cast
 bars 61-63  OUTRO   TUSEN TAKK end card, fade out ... and loop
 ```
+
+On top of the SID score the demo **actually sings**: the key vocal phrases
+of the original track are played as 4-bit digi samples through the classic
+`$d418` volume-DAC trick, bar-synced to where the vocals sit in the song
+(clearest on a 6581 SID — the trick that made Arkanoid and Turbo Outrun
+talk).
 
 The whole show is driven by the music: one bar = 93 PAL frames = 129.03 BPM,
 64 bars ≈ 119 s, and every scene change / word cue fires on a bar boundary —
@@ -59,19 +68,23 @@ and `LOAD"MOTORSAG",8,1` then `RUN`.
 ## Files
 
 ```
-motorsag.asm     main demo: VIC setup, raster-IRQ chain, the six scenes,
-                 big-font engine, sprite paths, scroller, timeline
+motorsag.asm     main demo: VIC setup, raster-IRQ chain, the scenes,
+                 big-font engine, sprite paths, scroller, digi player
 music.asm        the SID driver (arps, PWM sweeps, vibrato, drums)
 gen_music.py     generates music_data.inc — the transcribed 64-bar song
 gen_assets.py    generates gfx_*.inc — sprites, outrun screen, tunnel map,
                  grid animation, sine tables (+ preview PNGs in preview/)
+gen_samples.py   generates samples.inc — the 4-bit vocal digis (feed it
+                 an AI-separated vocal stem of music.mp3)
 music_data.inc   generated: the song event streams (3 voices)
+samples.inc      generated: packed vocal samples + bar/frame cue list
 gfx_sprites.inc  generated: the cast (ships, chainsaw cats, architect
-                 horses, bobs, dancers) as hardware sprites at $2000
+                 horses, bobs, dancers, magic circles) at $2000
 gfx_chars.inc    generated: custom charset half (stars, blocks, sun,
                  skyline, grid diagonals) at $3400
 gfx_tables.inc   generated: outrun screen/colour maps, tunnel ring map,
                  grid line animation, sky gradients, sine tables
+vocals/          the trimmed vocal phrases as reference WAVs
 notes.inc        PAL note→frequency table + note-name constants
 tables.inc       sine / vibrato lookup tables
 sid.asm          thin wrapper that builds the tune as a standalone PSID
@@ -152,11 +165,26 @@ A little path engine gives each scene its own configuration: walk/fly with
 sine bob (9-bit X wrap at 384), Lissajous, dance (pose on beat) or bob in
 place — two animation frames each.
 
-### Scroller
+### The big scroller
 
-Hardware fine scroll on row 24 (low 3 bits of `$d016`, 38-column trick, a
-raster split turns it on for that row only), 2 px/frame, with a rolling
-rainbow wash. Credits during the verse, greetings from the tunnel onward.
+Rows 23-24 are a 16-pixel-tall scroller in true 90s style: at boot every ROM
+glyph is pixel-doubled into a second 2KB charset at `$2800`, and a raster
+split swaps `$d018` to it for just those two rows (swapping back in the
+border). Hardware fine scroll (low 3 bits of `$d016`, 38-column trick) moves
+it 2 px/frame while each message character feeds in as two glyph columns,
+under a rolling rainbow wash. Credits during the verse, greetings from the
+tunnel onward.
+
+### The vocal digis
+
+The demo's party trick: the actual vocal phrases play as **4-bit samples
+through the SID master volume register** (`$d418`) — the classic volume-DAC
+digi technique. CIA 2's timer A fires an NMI at ~5.2 kHz; the handler feeds
+one nibble per tick from packed sample data while the 3-voice score keeps
+playing "through" the volume register. Cues are (bar, frame) pairs generated
+together with the samples, so KATTENE / OOHH / HESTENE / the "fantastisk"
+hook land exactly where the singer does. Loud and clear on a 6581; on an
+8580 you'll want the usual digiboost.
 
 ### Border flash
 
