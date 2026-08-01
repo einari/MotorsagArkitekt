@@ -339,7 +339,9 @@ irq_main:
         sta $ffff
         jmp .armed
 .nochain:
-        lda scrollon
+        lda #0                  ; no split chain -> keep the background
+        sta VIC+$21             ; black (a previous scene may have left
+        lda scrollon            ; its last split colour behind)
         beq .armed              ; nothing to do until next main irq
         lda #SCROLL_LINE
         sta VIC+$12
@@ -1892,7 +1894,7 @@ txt_prod    !scr "a claude demoscene production"
             !byte 0
 txt_romskip !scr "romskip er fantastisk"
             !byte 0
-txt_2026    !scr "kattene < 2026"
+txt_2026    !scr "kattene * 2026"
             !byte 0
 
 ; ---- scroll messages ----

@@ -447,7 +447,7 @@ def build_tunnel():
         row = []
         for c in range(40):
             d = math.hypot(c - 19.5, (r - 12.5) * 1.35)
-            row.append(int(30.0 / (d + 1.15)) & 15)
+            row.append(int(44.0 / (d + 1.0)) & 15)
         m.append(row)
     return m
 

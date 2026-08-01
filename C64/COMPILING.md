@@ -110,8 +110,15 @@ vsid motorsag.sid                     # or load it in any SID player / DAW
 
 ## 5. Regenerating the included data (only if you change it)
 
-`notes.inc`, `tables.inc` and `sprites.inc` are pre-generated and committed, so
-a normal build never needs to touch them. They only need regenerating if you
-change the note table, the sine tables, or the sprite art — see the generator
-snippets referenced in the commit history / `README.md`. For a plain compile you
-can ignore this section entirely.
+The generated includes are committed, so ACME alone can always build the demo.
+`build.sh` reruns the generators automatically when Python 3 is present:
+
+| generator       | output                                                | edit it to change                                         |
+|-----------------|-------------------------------------------------------|-----------------------------------------------------------|
+| `gen_music.py`  | `music_data.inc`                                      | the song: melody, chords, drums, structure                |
+| `gen_assets.py` | `gfx_sprites.inc`, `gfx_chars.inc`, `gfx_tables.inc`  | sprites, the outrun screen, tunnel map, animation tables  |
+
+`gen_assets.py` also renders preview PNGs into `preview/` so you can check the
+art without an emulator. `notes.inc` and `tables.inc` (note frequencies, sine
+tables) are static and rarely need touching. For a plain compile you can
+ignore this section entirely.
