@@ -15,6 +15,10 @@ if command -v python3 >/dev/null 2>&1; then
     echo "[1/5] regenerating song + graphics data"
     python3 gen_music.py
     python3 gen_assets.py
+    # vocal digis: regenerates samples.inc only when a vocal stem is given
+    # (e.g. VOCALS=path/to/vocals.wav ./build.sh); the committed include
+    # is used otherwise
+    python3 gen_samples.py "${VOCALS:-}" || true
 else
     echo "[1/5] python3 not found - using the committed generated includes"
 fi

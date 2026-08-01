@@ -30,6 +30,9 @@ COLRAM  = $d800
 SPRPTR  = SCREEN + $3f8
 CHARSET = $3000                 ; runtime ROM copy + custom half at $3400
 BIGPOOL = $3400                 ; big-font pool chars 128-175
+BIGSET  = $2800                 ; runtime 2x-doubled charset for the scroller
+D018_MAIN   = $1c               ; screen $0400 + charset $3000
+D018_SCROLL = $1a               ; screen $0400 + charset $2800
 
 ; ---- zero page (music driver uses $f8-$fe) ----
 zp_src   = $02                  ; \ main-loop scratch pointers
@@ -76,11 +79,15 @@ widx     = $3c
 tmp2     = $3d
 exp_src  = $3e                  ; big-font expander pointers
 exp_dst  = $40
+cfgrow   = $42                  ; active sprite-config row
+scrhalf  = $43                  ; big scroller: which glyph half is next
+dcueidx  = $44                  ; next vocal-digi cue
 
 SPLIT_TOP   = 50                ; first split raster line
-SCROLL_LINE = 240               ; where the scroller split fires
+SCROLL_LINE = 233               ; where the scroller split fires
 MAIN_LINE   = 251               ; per-frame IRQ in the lower border
-SCROLL_ROW  = 24
+SCROLL_ROW1 = 23                ; the big scroller occupies rows 23+24
+SCROLL_ROW2 = 24
 
 ; ===================================================================
 ;  BASIC stub:  2026 SYS 2064
@@ -112,6 +119,35 @@ start:
         lda #$35                ; RAM everywhere, keep I/O
         sta $01
 
+        ; build the 2x-doubled scroller charset at $2800: every ROM glyph
+        ; 0-63 pixel-doubled into 4 chars (base = code*4)
+        lda #0
+        sta tmp
+.bs:    lda #0
+        sta exp_dst+1
+        lda tmp
+        asl
+        rol exp_dst+1
+        asl
+        rol exp_dst+1
+        asl
+        rol exp_dst+1
+        asl
+        rol exp_dst+1
+        asl
+        rol exp_dst+1
+        sta exp_dst
+        lda exp_dst+1
+        clc
+        adc #>BIGSET
+        sta exp_dst+1
+        lda tmp
+        jsr expand_glyph
+        inc tmp
+        lda tmp
+        cmp #64
+        bne .bs
+
         jsr init_vic
         jsr music_init
 
@@ -121,6 +157,7 @@ start:
         sta bar
         sta bardirty
         sta cueidx
+        sta dcueidx
         sta frameflg
         sta flash
         sta dpose
@@ -202,9 +239,9 @@ init_irq:
         sta $fffe
         lda #>irq_main
         sta $ffff
-        lda #<nmi_rti
+        lda #<digi_nmi          ; CIA2 timer NMIs play the vocal digis
         sta $fffa
-        lda #>nmi_rti
+        lda #>digi_nmi
         sta $fffb
         lda #$7f                ; CIA IRQs off
         sta CIA1+$0d
@@ -260,6 +297,7 @@ irq_main:
         lda #0
         sta bar
         sta cueidx
+        sta dcueidx
         jsr music_init
 .nowrap:
         ; queue a scene switch when the timeline says so
@@ -269,6 +307,18 @@ irq_main:
         beq .notbar
         sta pending
 .notbar:
+        ; ---- vocal digi cues: start a sample on its exact frame ----
+        ldx dcueidx
+        lda dcue_bar,x
+        cmp bar
+        bne .nodigi
+        lda dcue_fr,x
+        cmp fr_bar
+        bne .nodigi
+        lda dcue_smp,x
+        jsr digi_trigger
+        inc dcueidx
+.nodigi:
 
         ; ---- copy sprite shadow registers (set up by the main loop) ----
         ldx #0
@@ -297,9 +347,11 @@ irq_main:
         lda sh_ye
         sta VIC+$17
 
-        ; ---- default fine scroll for the top of the screen ----
+        ; ---- default fine scroll + charset for the top of the screen ----
         lda #$c8
         sta VIC+$16
+        lda #D018_MAIN
+        sta VIC+$18
 
         ; ---- scroller ----
         lda scrollon
@@ -423,6 +475,8 @@ irq_scroll:
         lda scrollx
         ora #$c0                ; 38 cols + xscroll
         sta VIC+$16
+        lda #D018_SCROLL        ; rows 23-24 use the doubled charset
+        sta VIC+$18
         lda #$00
         sta VIC+$21
         lda #MAIN_LINE
@@ -440,10 +494,6 @@ irq_scroll:
 !zone
 scene_switch:
         sta scene
-        asl
-        asl
-        asl
-        sta scnoff              ; scene*8 for the sprite config tables
         lda VIC+$11
         and #$ef
         sta VIC+$11             ; display off -> clean black cut
@@ -452,13 +502,14 @@ scene_switch:
         sta VIC+$15
         sta wactive
         sta wsn
-        sta poolnext
         ldx #31                 ; forget big-font letter allocations
-        lda #0
 -       sta lmap,x
         dex
         bpl -
-        jsr spr_load_config
+        lda #1                  ; pool slot 0 stays blank: char 128 is
+        sta poolnext            ; "empty" in both charsets (see row 22)
+        lda scene               ; default sprite config row = scene id
+        jsr set_sprites
         ldx scene
         lda scn_ini_lo,x
         sta jvec
@@ -625,13 +676,15 @@ set_msg:
         lda #>greets_text
         sta msgptr+1
 .sm_clear:
-        ldx #39                 ; blank the scroller row
-        lda #$20
--       sta SCREEN + SCROLL_ROW*40,x
+        ldx #79                 ; blank both scroller rows (char 128 = the
+        lda #128                ; doubled space in the scroller charset)
+-       sta SCREEN + SCROLL_ROW1*40,x
         dex
         bpl -
         lda #7
         sta scrollx
+        lda #0
+        sta scrhalf
         rts
 .sm_done:
         rts
@@ -706,7 +759,12 @@ intro_update:
 verse_init:
         jsr clear_screen
         jsr draw_stars
-        lda #48
+        ldx #39                 ; row 22: char 128 is blank in both charsets
+        lda #128                ; (the scroller's $d018 split grazes its
+-       sta SCREEN + 22*40,x    ;  last raster line)
+        dex
+        bpl -
+        lda #45                 ; splits stop above the big scroller
         sta nsplits
         lda #1
         sta scrollon
@@ -724,6 +782,17 @@ verse_init:
 !zone
 verse_update:
         jsr twinkle
+        ; ---- "Hestene": from bar 8 the cats hand over to the architect
+        ;      horses and their magic circles (config row 6) ----
+        lda bar
+        cmp #8
+        bcc +
+        lda cfgrow
+        cmp #6
+        beq +
+        lda #6
+        jsr set_sprites
++
         ; ---- rebuild the copper bar colour table ----
         ldx #47
         lda #0
@@ -872,14 +941,20 @@ drop_update:
 ; ===================================================================
 !zone
 tunnel_init:
-        ; whole screen becomes full-block chars; colour does the rest
+        ; rows 0-22 become full-block chars; colour does the rest
+        ; (rows 23-24 belong to the big scroller)
         ldx #0
         lda #182
 -       sta SCREEN,x
         sta SCREEN+$100,x
         sta SCREEN+$200,x
-        sta SCREEN+$2c0,x       ; rows up to 23 ($2c0+$100 = row 24 start)
         inx
+        bne -
+        ldx #0
+-       lda #182
+        sta SCREEN+$300,x       ; offsets 768-919 = rest of row 22
+        inx
+        cpx #152
         bne -
         lda #0
         sta nsplits
@@ -918,7 +993,7 @@ tunnel_update:
         inx
         cpx #16
         bne .tp
-        ; rewrite half the colour RAM (rows 0-11 / 12-23) via the ring map
+        ; rewrite half the colour RAM (rows 0-22 in two halves of 460)
         lda tunhalf
         eor #1
         sta tunhalf
@@ -927,23 +1002,23 @@ tunnel_update:
 -       ldy tunnel_map,x
         lda ringcur,y
         sta COLRAM,x
-        ldy tunnel_map+240,x
+        ldy tunnel_map+230,x
         lda ringcur,y
-        sta COLRAM+240,x
+        sta COLRAM+230,x
         inx
-        cpx #240
+        cpx #230
         bne -
         jmp .words
 .lower:
         ldx #0
--       ldy tunnel_map+480,x
+-       ldy tunnel_map+460,x
         lda ringcur,y
-        sta COLRAM+480,x
-        ldy tunnel_map+720,x
+        sta COLRAM+460,x
+        ldy tunnel_map+690,x
         lda ringcur,y
-        sta COLRAM+720,x
+        sta COLRAM+690,x
         inx
-        cpx #240
+        cpx #230
         bne -
 .words:
         jsr word_recolor
@@ -955,12 +1030,12 @@ tunnel_update:
 !zone
 finale_init:
         jsr copy_drop_image
-        ldx #39                 ; row 24 hosts the greets scroller
-        lda #$20
--       sta SCREEN + SCROLL_ROW*40,x
+        ldx #79                 ; rows 23-24 host the greets scroller
+        lda #128                ; (doubled-space char)
+-       sta SCREEN + SCROLL_ROW1*40,x
         dex
         bpl -
-        lda #48
+        lda #45                 ; splits stop above the big scroller
         sta nsplits
         lda #2
         jsr set_msg
@@ -1150,11 +1225,12 @@ clear_words:
         lda #0
         sta wsn
         sta wactive
-        sta poolnext
         ldx #31
 -       sta lmap,x
         dex
         bpl -
+        lda #1                  ; slot 0 stays the blank char
+        sta poolnext
 .cw_done:
         rts
 
@@ -1373,21 +1449,6 @@ get_bigletter:
         sta lmap,x              ; cache base char for this letter
         pha
         inc poolnext
-        ; exp_src = CHARSET + code*8
-        lda #0
-        sta exp_src+1
-        txa
-        asl
-        rol exp_src+1
-        asl
-        rol exp_src+1
-        asl
-        rol exp_src+1
-        sta exp_src
-        lda exp_src+1
-        clc
-        adc #>CHARSET
-        sta exp_src+1
         ; exp_dst = BIGPOOL + (base-128)*8
         pla
         pha
@@ -1406,6 +1467,31 @@ get_bigletter:
         clc
         adc #>BIGPOOL
         sta exp_dst+1
+        txa                     ; glyph code
+        jsr expand_glyph
+        pla                     ; base char
+        rts
+
+; ---- A = glyph code (0-63), exp_dst = 32-byte destination:      ----
+;      pixel-double the ROM glyph into 4 chars (TL, TR, BL, BR)
+!zone
+expand_glyph:
+        pha
+        ; exp_src = CHARSET + code*8
+        lda #0
+        sta exp_src+1
+        pla
+        asl
+        rol exp_src+1
+        asl
+        rol exp_src+1
+        asl
+        rol exp_src+1
+        sta exp_src
+        lda exp_src+1
+        clc
+        adc #>CHARSET
+        sta exp_src+1
         ; TL quadrant: src rows 0-3, high nibble -> dst bytes 0-7
         ldx #0
 .gb_tl: txa
@@ -1498,7 +1584,6 @@ get_bigletter:
         inx
         cpx #4
         bne .gb_br
-        pla                     ; base char
         rts
 
 ; ===================================================================
@@ -1528,7 +1613,7 @@ spr_load_config:
         iny
         cpy #8
         bne -
-        ldx scene
+        ldx cfgrow
         lda scn_en,x
         sta sh_en
         lda scn_mc,x
@@ -1538,6 +1623,16 @@ spr_load_config:
         lda scn_ye,x
         sta sh_ye
         rts
+
+; select a sprite-config row (A = row) and load it
+!zone
+set_sprites:
+        sta cfgrow
+        asl
+        asl
+        asl
+        sta scnoff
+        jmp spr_load_config
 
 !zone
 update_sprites:
@@ -1549,6 +1644,9 @@ update_sprites:
         bne +
         jmp .us_next
 +       cmp #1
+        bne +
+        jmp .us_walk
++       cmp #5                  ; walk with 4-frame animation
         bne +
         jmp .us_walk
 +       cmp #2
@@ -1617,12 +1715,23 @@ update_sprites:
         clc
         adc cur_ybase,x
         sta sh_y,x
-        ; animate: base ptr + (frame>>3)&1
+        ; animate: 2 frames for mode 1, 4 fast frames for mode 5
+        lda cur_mode,x
+        cmp #5
+        beq .anim4
         lda frame
         lsr
         lsr
         lsr
         and #1
+        clc
+        adc cur_ptr,x
+        sta sh_ptr,x
+        jmp .us_next
+.anim4: lda frame
+        lsr
+        lsr
+        and #3
         clc
         adc cur_ptr,x
         sta sh_ptr,x
@@ -1656,7 +1765,13 @@ update_sprites:
         clc
         adc #42
         sta sh_y,x
-        lda cur_ptr,x
+        lda frame               ; 2-frame spin/shimmer
+        lsr
+        lsr
+        lsr
+        and #1
+        clc
+        adc cur_ptr,x
         sta sh_ptr,x
         jmp .us_next
 
@@ -1717,25 +1832,34 @@ update_sprites:
 +       rts
 
 ; ===================================================================
-;  Scroller (hardware fine scroll, 2px per frame)
+;  Big scroller: 16px-tall glyphs from the doubled charset at $2800,
+;  hardware fine scroll on rows 23-24, 2px per frame.  Each message
+;  char is two glyph columns (left halves, then right halves).
 ; ===================================================================
 !zone
 do_scroll:
         dec scrollx
         dec scrollx
-        bpl .sc_done
+        bmi .sc_go
+        rts
+.sc_go:
         lda scrollx
         clc
         adc #8
         sta scrollx
-        ; shift row 24 one char left
+        ; shift both scroller rows one char left
         ldx #0
--       lda SCREEN + SCROLL_ROW*40 + 1,x
-        sta SCREEN + SCROLL_ROW*40,x
+-       lda SCREEN + SCROLL_ROW1*40 + 1,x
+        sta SCREEN + SCROLL_ROW1*40,x
+        lda SCREEN + SCROLL_ROW2*40 + 1,x
+        sta SCREEN + SCROLL_ROW2*40,x
         inx
         cpx #39
         bne -
-        ; next message char (0 = wrap to start of message)
+        ; feed the next glyph column into column 39
+        lda scrhalf
+        bne .right
+        ; left half: fetch the current char (0 = wrap the message)
         ldy #0
         lda (msgptr),y
         bne .have
@@ -1754,13 +1878,33 @@ do_scroll:
 .rehave:
         ldy #0
         lda (msgptr),y
-.have:  sta SCREEN + SCROLL_ROW*40 + 39
-        inc msgptr
-        bne +
+.have:  asl
+        asl                     ; big-charset base = code*4
+        sta SCREEN + SCROLL_ROW1*40 + 39
+        clc
+        adc #2
+        sta SCREEN + SCROLL_ROW2*40 + 39
+        lda #1
+        sta scrhalf
+        jmp .wash
+.right: ldy #0
+        lda (msgptr),y
+        asl
+        asl
+        clc
+        adc #1                  ; right-half chars
+        sta SCREEN + SCROLL_ROW1*40 + 39
+        clc
+        adc #2
+        sta SCREEN + SCROLL_ROW2*40 + 39
+        lda #0
+        sta scrhalf
+        inc msgptr              ; this char is done
+        bne .wash
         inc msgptr+1
-+       ; rainbow wash over the scroller row
+.wash:  ; rainbow wash over both rows (same colour per column)
         ldx #0
-.wash:  txa
+.wl:    txa
         clc
         adc frame
         lsr
@@ -1768,15 +1912,93 @@ do_scroll:
         and #$07
         tay
         lda wash_pal,y
-        sta COLRAM + SCROLL_ROW*40,x
+        sta COLRAM + SCROLL_ROW1*40,x
+        sta COLRAM + SCROLL_ROW2*40,x
         inx
         cpx #40
-        bne .wash
+        bne .wl
 .sc_done:
         rts
 
 ; ===================================================================
-;  Include: the SID driver (song data lives at $2400)
+;  Vocal digi playback: 4-bit samples through the $d418 volume DAC,
+;  clocked by CIA2 timer A -> NMI (the classic C64 digi trick).
+;  The 3-voice SID music keeps playing "through" the volume register.
+; ===================================================================
+
+; start sample A (0-3): point the NMI fetch at it, start the timer
+!zone
+digi_trigger:
+        tax
+        lda smp_lo,x
+        sta digi_fetch+1
+        lda smp_hi,x
+        sta digi_fetch+2
+        lda smpe_lo,x
+        sta digi_end
+        lda smpe_hi,x
+        sta digi_end+1
+        lda #0
+        sta digi_phase
+        lda #<DIGI_TIMER
+        sta CIA2+$04
+        lda #>DIGI_TIMER
+        sta CIA2+$05
+        lda #$81                ; enable timer A NMI
+        sta CIA2+$0d
+        lda #$11                ; load + start, continuous
+        sta CIA2+$0e
+        rts
+
+!zone
+digi_nmi:
+        pha
+        lda CIA2+$0d            ; ack (RESTORE-key NMIs land here too)
+        lda digi_phase
+        bne .lo
+digi_fetch:
+        lda $ffff               ; (self-modified sample pointer)
+        sta digi_cur
+        lsr
+        lsr
+        lsr
+        lsr
+        sta $d418
+        inc digi_phase
+        pla
+        rti
+.lo:
+        lda digi_cur
+        and #$0f
+        sta $d418
+        lda #0
+        sta digi_phase
+        inc digi_fetch+1
+        bne +
+        inc digi_fetch+2
++       lda digi_fetch+1
+        cmp digi_end
+        bne .out
+        lda digi_fetch+2
+        cmp digi_end+1
+        bne .out
+        lda #0                  ; sample done: stop the timer, give the
+        sta CIA2+$0e            ; volume register back to the music
+        lda #$7f
+        sta CIA2+$0d
+        lda CIA2+$0d
+        lda #$0f
+        sta $d418
+.out:
+        pla
+        rti
+
+digi_cur   !byte 0
+digi_phase !byte 0
+digi_end   !byte 0,0
+
+; ===================================================================
+;  Include: the SID driver
 ; ===================================================================
         !source "music.asm"
         !source "notes.inc"
@@ -1785,19 +2007,24 @@ do_scroll:
         !if * > $2000 { !error "code overflows into sprite area" }
 
 ; ===================================================================
-;  Sprites ($2000) and song data ($2400)
+;  Sprites ($2000).  $2800-$2fff is reserved for the runtime-built
+;  scroller charset; $3000-$33ff for the ROM font copy.
 ; ===================================================================
         !source "gfx_sprites.inc"
-
-        * = $2400
-        !source "music_data.inc"
-        !if * > $3000 { !error "music data overflows charset area" }
+        !if * > $2800 { !error "sprites overflow the scroller charset" }
 
 ; ===================================================================
-;  Custom charset half ($3400) and generated tables ($3800)
+;  Custom charset half ($3400), generated tables ($3800), song data
 ; ===================================================================
         !source "gfx_chars.inc"
         !source "gfx_tables.inc"
+        !source "music_data.inc"
+
+; ===================================================================
+;  Vocal digi samples (at $7000; must stay below the I/O area)
+; ===================================================================
+        !source "samples.inc"
+        !if * > $d000 { !error "digi samples run into the I/O area" }
 
 ; ===================================================================
 ;  Hand-authored data (follows the generated tables)
@@ -1901,7 +2128,7 @@ txt_2026    !scr "kattene * 2026"
 credits_text
         !scr "                                        "
         !scr "motorsag arkitekt ... en kattene produksjon anno 2026 ... "
-        !scr "musikk: kim_jensen ... sid-arrangement, pixels og 6510-kode: claude ... "
+        !scr "musikk: kim jensen ... sid-arrangement, pixels og 6510-kode: claude ... "
         !scr "promptmaster: einar ingebrigtsen ... "
         !scr "katter med motorsag - hester paa jakt etter arkitektoppdrag - "
         !scr "og selvfoelgelig: romskip! ...    "
@@ -1916,68 +2143,77 @@ greets_text
         !scr "the horses are still looking for architecture assignments ...    "
         !byte 0
 
-; ---- sprite scene configs (8 sprites x 6 scenes) ----
-; modes: 0 off, 1 walk, 2 lissajous, 3 dancer, 4 bob in place
+; ---- sprite scene configs (8 sprites x 7 config rows) ----
+; rows 0-5 match scene ids; row 6 = verse part B (horses + circles)
+; modes: 0 off, 1 walk, 2 lissajous, 3 dancer, 4 bob, 5 walk 4-frame
 scn_mode
-        !byte 1,1,0,0,0,0,0,0                   ; intro: 2 ships
-        !byte 1,1,1,1,1,1,1,1                   ; verse: 4 cats, 4 horses
-        !byte 1,1,1,1,1,1,0,0                   ; drop: 4 ships, 2 cats
-        !byte 3,3,2,2,2,2,2,2                   ; tunnel: 2 dancers, 6 bobs
-        !byte 1,1,1,1,1,1,2,2                   ; finale: mix + 2 bobs
-        !byte 4,4,1,0,0,0,0,0                   ; outro: cat, horse, ship
+        !byte 5,5,0,0,0,0,0,0                   ; 0 intro: 2 ships
+        !byte 5,5,5,5,5,5,0,0                   ; 1 verse A: 6 chainsaw cats
+        !byte 5,5,5,5,5,5,0,0                   ; 2 drop: ships only
+        !byte 3,3,2,2,2,2,2,2                   ; 3 tunnel: dancers + bobs
+        !byte 5,5,5,1,5,1,2,2                   ; 4 finale: mix + 2 circles
+        !byte 4,4,5,0,0,0,0,0                   ; 5 outro: cat, horse, ship
+        !byte 1,1,1,1,2,2,2,2                   ; 6 verse B: horses + circles
 scn_ptr
         !byte SP_SHIP_A,SP_SHIP_A,0,0,0,0,0,0
-        !byte SP_CAT_A,SP_CAT_A,SP_CAT_A,SP_CAT_A,SP_HORSE_A,SP_HORSE_A,SP_HORSE_A,SP_HORSE_A
-        !byte SP_SHIP_A,SP_SHIP_A,SP_SHIP_A,SP_SHIP_A,SP_CAT_A,SP_CAT_A,0,0
-        !byte SP_DANCER_A,SP_DANCER_A,SP_BALL,SP_BALL,SP_BALL,SP_BALL,SP_BALL,SP_BALL
-        !byte SP_SHIP_A,SP_SHIP_A,SP_CAT_A,SP_HORSE_A,SP_CAT_A,SP_HORSE_A,SP_BALL,SP_BALL
+        !byte SP_CAT_A,SP_CAT_A,SP_CAT_A,SP_CAT_A,SP_CAT_A,SP_CAT_A,0,0
+        !byte SP_SHIP_A,SP_SHIP_A,SP_SHIP_A,SP_SHIP_A,SP_SHIP_A,SP_SHIP_A,0,0
+        !byte SP_DANCER_A,SP_DANCER_A,SP_BALL_A,SP_BALL_A,SP_BALL_A,SP_BALL_A,SP_BALL_A,SP_BALL_A
+        !byte SP_SHIP_A,SP_SHIP_A,SP_CAT_A,SP_HORSE_A,SP_CAT_A,SP_HORSE_A,SP_CIRCLE_A,SP_CIRCLE_A
         !byte SP_CAT_A,SP_HORSE_A,SP_SHIP_A,0,0,0,0,0
+        !byte SP_HORSE_A,SP_HORSE_A,SP_HORSE_A,SP_HORSE_A,SP_CIRCLE_A,SP_CIRCLE_A,SP_CIRCLE_A,SP_CIRCLE_A
 scn_col
         !byte $0f,$0f,0,0,0,0,0,0
-        !byte $08,$08,$08,$08,$04,$04,$04,$04
-        !byte $0f,$0f,$0f,$0f,$08,$08,0,0
+        !byte $08,$08,$08,$08,$08,$08,0,0
+        !byte $0f,$0c,$0f,$0f,$0c,$0f,0,0
         !byte $00,$00,$07,$0e,$0a,$0d,$01,$08
-        !byte $0f,$0f,$08,$04,$08,$04,$07,$0e
+        !byte $0f,$0f,$08,$04,$08,$04,$03,$0a
         !byte $08,$04,$0f,0,0,0,0,0
+        !byte $04,$04,$04,$04,$03,$0a,$07,$0e
 scn_vel
         !byte 1,1,0,0,0,0,0,0
-        !byte 2,2,2,2,1,1,1,1
-        !byte 2,3,2,3,2,2,0,0
+        !byte 2,2,1,2,1,2,0,0
+        !byte 3,2,1,2,3,1,0,0
         !byte 0,0,0,0,0,0,0,0
         !byte 3,2,2,1,2,1,0,0
         !byte 0,0,1,0,0,0,0,0
+        !byte 1,1,2,1,0,0,0,0
 scn_ybase
         !byte 70,110,0,0,0,0,0,0
-        !byte 185,185,185,185,150,150,150,150
-        !byte 58,84,108,72,198,198,0,0
+        !byte 150,172,162,188,180,196,0,0
+        !byte 55,75,95,115,65,105,0,0
         !byte 110,120,0,0,0,0,0,0
         !byte 60,84,196,166,204,174,0,0
         !byte 190,186,70,0,0,0,0,0
+        !byte 150,170,185,160,0,0,0,0
 scn_ph
         !byte 0,128,0,0,0,0,0,0
-        !byte 0,64,128,192,32,96,160,224
-        !byte 0,48,96,144,0,128,0,0
+        !byte 0,64,128,32,96,160,0,0
+        !byte 0,48,96,144,192,240,0,0
         !byte 0,128,0,64,128,192,32,96
         !byte 0,64,0,96,128,192,160,224
         !byte 0,80,0,0,0,0,0,0
+        !byte 0,64,128,192,0,85,170,40
 scn_xin
         !byte 30,120,0,0,0,0,0,0
-        !byte 10,110,210,54,60,160,4,240
-        !byte 20,120,220,64,40,190,0,0
+        !byte 10,80,150,220,40,190,0,0
+        !byte 20,120,220,60,160,4,0,0
         !byte 110,210,0,0,0,0,0,0
         !byte 20,150,60,160,240,84,0,0
         !byte 80,235,30,0,0,0,0,0
+        !byte 30,120,210,60,0,0,0,0
 scn_xinh
         !byte 0,0,0,0,0,0,0,0
-        !byte 0,0,0,1,0,0,1,0
-        !byte 0,0,0,1,0,0,0,0
+        !byte 0,0,0,0,1,0,0,0
+        !byte 0,0,0,1,0,1,0,0
         !byte 0,0,0,0,0,0,0,0
         !byte 0,0,0,0,0,1,0,0
         !byte 0,0,0,0,0,0,0,0
-scn_en  !byte $03,$ff,$3f,$ff,$ff,$07
-scn_mc  !byte $03,$ff,$3f,$00,$3f,$07
-scn_xe  !byte $00,$00,$00,$03,$00,$00
-scn_ye  !byte $00,$00,$00,$03,$00,$00
+        !byte 0,0,0,1,0,0,0,0
+scn_en  !byte $03,$3f,$3f,$ff,$ff,$07,$ff
+scn_mc  !byte $03,$3f,$3f,$00,$3f,$07,$0f
+scn_xe  !byte $00,$00,$03,$03,$00,$00,$30
+scn_ye  !byte $00,$00,$00,$03,$00,$00,$30
 
 ; ---- runtime state ----
 sh_xlo   !fill 8, 0
