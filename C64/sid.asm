@@ -15,3 +15,4 @@
         !source "notes.inc"
         !source "tables.inc"
         !source "music.asm"
+        !source "music_data.inc"

@@ -11,17 +11,29 @@
 set -e
 cd "$(dirname "$0")"
 
-echo "[1/3] assembling demo -> motorsag.prg"
+if command -v python3 >/dev/null 2>&1; then
+    echo "[1/5] regenerating song + graphics data"
+    python3 gen_music.py
+    python3 gen_assets.py
+else
+    echo "[1/5] python3 not found - using the committed generated includes"
+fi
+
+echo "[2/5] assembling demo -> motorsag.prg"
 acme motorsag.asm
 
-echo "[2/3] assembling standalone music payload"
+echo "[3/5] assembling standalone music payload"
 acme sid.asm
 
-echo "[3/4] wrapping music -> motorsag.sid"
-python3 make_sid.py motorsag_sid.prg motorsag.sid
-rm -f motorsag_sid.prg
+echo "[4/5] wrapping music -> motorsag.sid"
+if command -v python3 >/dev/null 2>&1; then
+    python3 make_sid.py motorsag_sid.prg motorsag.sid
+    rm -f motorsag_sid.prg
+else
+    echo "   (python3 not found - skipping the .sid)"
+fi
 
-echo "[4/4] building disk image -> motorsag.d64 (if c1541 is present)"
+echo "[5/5] building disk image -> motorsag.d64 (if c1541 is present)"
 if command -v c1541 >/dev/null 2>&1; then
     c1541 -format "motorsag,ma" d64 motorsag.d64 -write motorsag.prg motorsag >/dev/null
 else
