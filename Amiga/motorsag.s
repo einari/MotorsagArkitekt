@@ -13,7 +13,7 @@
 ;  copper bars, sunset + rushing grid lines, breathing tunnel rings,
 ;  rainbow finale) plus a 32px-tall hardware-scrolled text scroller.
 ;
-;  Assemble:  vasmm68k_mot -Fhunkexe -o motorsag motorsag.s
+;  Assemble:  vasmm68k_mot -Fhunkexe -kick1hunks -o motorsag motorsag.s
 ;  Run: from CLI/Workbench on any PAL A500 (takes the machine over).
 ; ===================================================================
 

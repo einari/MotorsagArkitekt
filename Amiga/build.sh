@@ -25,7 +25,9 @@ if ! command -v "$VASM" >/dev/null 2>&1; then
     echo "error: vasmm68k_mot not found (set VASM=/path/to/vasmm68k_mot)"
     exit 1
 fi
-"$VASM" -Fhunkexe -o motorsag motorsag.s
+# -kick1hunks keeps the executable loadable on Kickstart 1.x (no
+# reloc32short etc., which 1.3's LoadSeg rejects with error 121)
+"$VASM" -Fhunkexe -kick1hunks -o motorsag motorsag.s
 
 echo "[3/3] building bootable disk -> motorsag.adf"
 XDF="${XDF:-xdftool}"
