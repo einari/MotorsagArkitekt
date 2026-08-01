@@ -85,8 +85,9 @@ def hires_sprite(rows):
     data.append(0)
     return bytes(data)
 
-# --- chainsaw cat (black body w/ neon rim, orange saw, facing right) ---
-CAT_A = [
+# --- chainsaw cat: black body w/ neon rim, orange saw, 4 animation ---
+# --- frames (teeth run along the blade, motor shakes, sparks fly)   ---
+CAT_BODY = [
     '..K......K..',
     '..KK....KK..',
     '..KKKKKKKK..',
@@ -101,37 +102,48 @@ CAT_A = [
     'CKKKKKKKKKC.',
     'K.KKKKKKKK..',
     'K..KKKKKK...',
-    '...KK..KK...',
-    '..II........',
-    '.IIII.......',
-    '.IIIICCCCCC.',
-    '.IIIICCCCCCC',
-    '..II.K.K.K..',
-    '............',
 ]
-CAT_B = [
-    '..K......K..',
-    '..KK....KK..',
-    '..KKKKKKKK..',
-    '.CKKKKKKKKC.',
-    '.CKCKKKKCKC.',
-    '.CKKKKKKKKC.',
-    '..KKKIKKKK..',
-    '...KKKKKK...',
-    '..KKKKKKK...',
-    '.CKKKKKKKC..',
-    'CKKKKKKKKKC.',
-    'CKKKKKKKKKC.',
-    'K.KKKKKKKK..',
-    'K..KKKKKK...',
-    '...KK..KK...',
-    '..II........',
-    '.IIII.......',
-    '.IIIICCCCCCC',
-    '.IIIICCCCCC.',
-    '..II..K.K.K.',
-    '............',
-]
+
+def cat_frame(phase):
+    """Compose body + walking legs + an animated chainsaw (4 phases)."""
+    rows = [list(r) for r in CAT_BODY]
+    # legs alternate stance
+    legs = list('...KK..KK...') if phase % 2 == 0 else list('..KK....KK..')
+    rows.append(legs)
+    # neon rim: outline the black body so the cat reads on a dark background
+    for y in range(len(rows)):
+        for x in range(12):
+            if rows[y][x] != '.':
+                continue
+            for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+                yy, xx = y + dy, x + dx
+                if 0 <= yy < len(rows) and 0 <= xx < 12 and rows[yy][xx] == 'K':
+                    rows[y][x] = 'C'
+                    break
+    # saw block, shaking horizontally with the motor
+    shake = phase % 2
+    saw = [list('............') for _ in range(6)]
+    mx = 1 + shake
+    for c in range(mx, mx + 3):
+        saw[0][c] = 'I'                            # motor top
+    for c in range(mx, mx + 4):
+        saw[1][c] = 'I'                            # motor body
+        saw[2][c] = 'I'
+    saw[1][mx + 1] = 'K'                           # pull-cord detail
+    for c in range(5, 12):                         # blade
+        saw[1][c] = 'C'
+        saw[2][c] = 'C'
+    for k in range(4):                             # teeth race along the bar
+        t = 5 + (k * 2 + phase) % 7
+        saw[0][t] = 'K'
+        saw[3][t] = 'K'
+    if phase == 1:                                 # sparks off the tip
+        saw[0][11] = 'C'
+    if phase == 3:
+        saw[3][11] = 'I'
+    rows += saw[:6]
+    rows = [''.join(r) for r in rows]
+    return (rows + ['............'] * 21)[:21]
 
 # --- architect horse (purple body, light-blue mane, blueprint tube) ---
 HORSE_A = [
@@ -181,53 +193,49 @@ HORSE_B = [
     '............',
 ]
 
-# --- spaceship (grey hull, light-blue cockpit/glow/ion flare, right) ---
-SHIP_A = [
+# --- spaceship: sleek delta shuttle, nose right — grey hull, light-blue
+# --- canopy / ion drive; 4 frames of pulsing engine flare like the    ---
+# --- browser demo's flickering exhaust                                ---
+SHIP_HULL = [
     '............',
     '............',
     '............',
-    '............',
-    '............',
-    '.....KK.....',
-    '....KCCK....',
-    '...KICCIK...',
-    'C.KIIIIIIK..',
-    'CCKIIIIIIIK.',
-    'CKIIIIIIIIIK',
-    'CCKIIIIIIIK.',
-    'C.KIIIIIIK..',
-    '...KCCCCK...',
-    '....C..C....',
-    '............',
-    '............',
-    '............',
-    '............',
-    '............',
-    '............',
-]
-SHIP_B = [
-    '............',
-    '............',
-    '............',
-    '............',
-    '............',
-    '.....KK.....',
-    '....KCCK....',
-    '...KICCIK...',
-    '..KIIIIIIK..',
-    'C.KIIIIIIIK.',
-    'CCIIIIIIIIIK',
-    'C.KIIIIIIIK.',
-    '..KIIIIIIK..',
-    '...KCCCCK...',
-    '....C..C....',
-    '............',
-    '............',
-    '............',
-    '............',
-    '............',
+    '....K.......',
+    '....KK......',
+    '....KIK.....',
+    '....KIIK....',
+    '....KIIK....',
+    '.....KIIKKK.',
+    '...KKIICCIK.',
+    '..KIIIICCIIK',
+    '..KIIIIIIIII',
+    '.KIIIIIIIIIK',
+    '..KIIIIIIIK.',
+    '...KICCCIK..',
+    '....KIIK....',
+    '...KIIK.....',
+    '...KIK......',
+    '...KK.......',
+    '...K........',
     '............',
 ]
+
+def ship_frame(phase):
+    """Hull + a pulsing ion flare streaming left from the engine."""
+    rows = [list(r) for r in SHIP_HULL]
+    flare = [1, 2, 3, 2][phase]
+    for k in range(flare):                         # centre exhaust row
+        rows[12][1 - k if 1 - k >= 0 else 0] = 'C'
+        if k == 0:
+            rows[11][1] = 'C'
+            rows[13][1] = 'C'
+    if flare >= 2:
+        rows[11][0] = 'C'
+        rows[13][0] = 'C'
+    if flare == 3:
+        rows[12][0] = 'C'
+        rows[10][1] = 'C'
+    return [''.join(r) for r in rows]
 
 # --- glowing ball (hires circle w/ highlight) + dancers (hires silhouettes)
 def ball_rows(radius=9, cx=11.5, cy=10):
@@ -288,30 +296,54 @@ DANCER_B = [
     '............................'[:24],
 ]
 
-SPRITES = [
-    ('spr_ship_a', mc_sprite(SHIP_A)),
-    ('spr_ship_b', mc_sprite(SHIP_B)),
-    ('spr_cat_a', mc_sprite(CAT_A)),
-    ('spr_cat_b', mc_sprite(CAT_B)),
-    ('spr_horse_a', mc_sprite(HORSE_A)),
-    ('spr_horse_b', mc_sprite(HORSE_B)),
-    ('spr_ball', hires_sprite(ball_rows())),
-    ('spr_dancer_a', hires_sprite(DANCER_A)),
-    ('spr_dancer_b', hires_sprite(DANCER_B)),
+# --- "architect" magic circle: rune ring w/ rotating tick marks (2 frames,
+# --- shown x+y expanded on screen so it reads big and translucent-ish) ---
+def circle_rows(phase):
+    rows = [['.'] * 24 for _ in range(21)]
+    cx, cy = 11.5, 10.0
+    for y in range(21):
+        for x in range(24):
+            d = math.hypot((x - cx) * 0.95, y - cy)
+            if 8.0 <= d <= 9.3:                      # outer ring
+                rows[y][x] = 'X'
+            elif 4.6 <= d <= 5.4 and (x + y) % 2 == 0:   # dashed inner ring
+                rows[y][x] = 'X'
+    for k in range(8):                               # rotating tick marks
+        a = (k / 8 + phase / 16) * 2 * math.pi
+        for rr in (6.4, 7.0):
+            x = int(round(cx + math.cos(a) * rr * 1.05))
+            y = int(round(cy + math.sin(a) * rr))
+            if 0 <= x < 24 and 0 <= y < 21:
+                rows[y][x] = 'X'
+    return [''.join(r) for r in rows]
+
+SPRITE_DEFS = [
+    # (name, rows, multicolor, individual colour for the preview)
+    ('spr_ship_a', ship_frame(0), True, LGREY),
+    ('spr_ship_b', ship_frame(1), True, LGREY),
+    ('spr_ship_c', ship_frame(2), True, LGREY),
+    ('spr_ship_d', ship_frame(3), True, LGREY),
+    ('spr_cat_a', cat_frame(0), True, ORANGE),
+    ('spr_cat_b', cat_frame(1), True, ORANGE),
+    ('spr_cat_c', cat_frame(2), True, ORANGE),
+    ('spr_cat_d', cat_frame(3), True, ORANGE),
+    ('spr_horse_a', HORSE_A, True, PURPLE),
+    ('spr_horse_b', HORSE_B, True, PURPLE),
+    ('spr_ball_a', ball_rows(), False, LGREEN),
+    ('spr_ball_b', ball_rows(cx=12.5, cy=11), False, LGREEN),
+    ('spr_dancer_a', DANCER_A, False, BLACK),
+    ('spr_dancer_b', DANCER_B, False, BLACK),
+    ('spr_circle_a', circle_rows(0), False, CYAN),
+    ('spr_circle_b', circle_rows(1), False, CYAN),
 ]
+SPRITES = [(name, mc_sprite(rows) if mc else hires_sprite(rows))
+           for name, rows, mc, _ in SPRITE_DEFS]
 
 def preview_sprites():
     """Render all sprites side by side (MC pixels doubled horizontally)."""
-    w, h = len(SPRITES) * 28, 24
+    w, h = len(SPRITE_DEFS) * 28, 24
     px = [PAL[BLUE]] * (w * h)
-    for si, (name, _) in enumerate(SPRITES):
-        mc = not name.startswith(('spr_ball', 'spr_dancer'))
-        rows = {'spr_ship_a': SHIP_A, 'spr_ship_b': SHIP_B, 'spr_cat_a': CAT_A,
-                'spr_cat_b': CAT_B, 'spr_horse_a': HORSE_A, 'spr_horse_b': HORSE_B,
-                'spr_ball': ball_rows(), 'spr_dancer_a': DANCER_A,
-                'spr_dancer_b': DANCER_B}[name]
-        indiv = {'ship': LGREY, 'cat': ORANGE, 'horse': PURPLE,
-                 'ball': LGREEN, 'dancer': BLACK}[name.split('_')[1]]
+    for si, (name, rows, mc, indiv) in enumerate(SPRITE_DEFS):
         for y, r in enumerate(rows):
             for x, ch in enumerate(r):
                 if ch == '.':
