@@ -1,55 +1,64 @@
 ; ===================================================================
-;  M O T O R S A G   A R K I T E K T   -   A M I G A   5 0 0
+;  M O T O R S A G   A R K I T E K T   -   A M I G A   5 0 0   v 2
 ; -------------------------------------------------------------------
-;  OCS/PAL version of the Kattene demo.  Plays the identical 64-bar
-;  score as the C64 port (93 frames per bar = 129.03 BPM) on Paula:
+;  OCS/PAL.  The music is a real SoundTracker module (motorsag.mod,
+;  ST-01 instruments + the sung vocals as samples) played by a
+;  ProTracker-subset replayer; the visual timeline is driven by the
+;  replayer's song position.
 ;
-;    ch0  octave-jumping bass          ch2  the sung lead melody
-;    ch1  chord arpeggios              ch3  drums + the REAL VOCALS
-;                                           (8-bit Paula samples!)
-;
-;  Visuals: one-bitplane title screen with copper-driven colours -
-;  the timeline patches 64 colour slots per frame (sine-bobbing
-;  copper bars, sunset + rushing grid lines, breathing tunnel rings,
-;  rainbow finale) plus a 32px-tall hardware-scrolled text scroller.
+;  Visuals: 3 bitplanes.
+;    plane 0  scale4x title screen + starfield + the DYCP scroller
+;             (letters bounce on their own sines, blitter-drawn)
+;    plane 1+2  the cast: chainsaw cats / architect horses / dancers /
+;             magic circles as blitter bobs, and in the drop scene the
+;             spaceships as CPU-outlined, blitter-FILLED vector
+;             polygons (XOR parity gives them cockpit holes)
+;  Copper: 64 background colour slots (bars / sunset+grid / tunnel /
+;  rainbow), a 44-step gradient rolling through the title letters, and
+;  per-scene palettes for the cast planes.
 ;
 ;  Assemble:  vasmm68k_mot -Fhunkexe -kick1hunks -o motorsag motorsag.s
-;  Run: from CLI/Workbench on any PAL A500 (takes the machine over).
 ; ===================================================================
 
 CUSTOM   = $dff000
-DMACONR  = $002
 VPOSR    = $004
+DMACONR  = $002
+BLTCON0  = $040
+BLTCON1  = $042
+BLTAFWM  = $044
+BLTALWM  = $046
+BLTCPTH  = $048
+BLTBPTH  = $04c
+BLTAPTH  = $050
+BLTDPTH  = $054
+BLTSIZE  = $058
+BLTCMOD  = $060
+BLTBMOD  = $062
+BLTAMOD  = $064
+BLTDMOD  = $066
+BLTADAT  = $074
 COP1LC   = $080
 COPJMP1  = $088
-DIWSTRT  = $08e
 DMACON   = $096
 INTENA   = $09a
 INTREQ   = $09c
-AUD0     = $0a0                 ; +$10 per channel; LC+0 LEN+4 PER+6 VOL+8
+AUD0     = $0a0
 
-FRAMES_PER_BAR = 93
+PLANEB   = 44                   ; bytes per row (352 px: 32 hidden spill
+                                ;  pixels so blits can enter from the right)
+ROWS_PER_BAR = 16
 
-; ---- per-channel player state ----
-CH_PTR    = 0                   ; .l  stream position
-CH_BASE   = 4                   ; .l  stream start (for looping)
-CH_WAIT   = 8                   ; .w
-CH_ARPN   = 10                  ; .w  number of periods to cycle (1 or 4)
-CH_ARPI   = 12                  ; .w
-CH_PERS   = 14                  ; 4 .w
-CH_INST   = 22                  ; .w
-CH_TRIG   = 24                  ; .w
-CH_1SHOT  = 26                  ; .w  point at silence next frame
-CH_SIZE   = 28
-
-; instrument table entry (generated): ptr.l, len_words.w, period.w,
-; vol.w, oneshot.w
-IN_PTR = 0
-IN_LEN = 4
-IN_PER = 6
-IN_VOL = 8
-IN_1SH = 10
-IN_SIZE = 12
+; ---- replayer channel state ----
+MC_SMP    = 0                   ; .l  sample data
+MC_LEN    = 4                   ; .w  words
+MC_LOOP   = 6                   ; .l  loop data
+MC_LOOPL  = 10                  ; .w  loop words
+MC_PER    = 12                  ; .w
+MC_VOL    = 14                  ; .w
+MC_ARP    = 16                  ; .w  0xy param
+MC_PIDX   = 18                  ; .w  PT table index of base period
+MC_TRIG   = 20                  ; .w
+MC_SIZE   = 22
 
         section code,code
 
@@ -61,49 +70,56 @@ start:
         move.w  #$7fff,INTENA(a6)
         move.w  #$7fff,INTREQ(a6)
         move.w  #$7fff,INTREQ(a6)
-        move.w  #$07ff,DMACON(a6)       ; all DMA off
+        move.w  #$07ff,DMACON(a6)
 
-        ; point the copper list's bitplane pointer at the logo screen
+        ; bitplane pointers into the copper list
         lea     coplist,a0
-        move.l  #logo,d0
-        move.w  d0,COPOFF_BPL+4(a0)     ; low word
-        swap    d0
-        move.w  d0,COPOFF_BPL(a0)       ; high word
+        lea     COPOFF_BPL(a0),a1
+        move.l  #plane0,d0
+        bsr     poke_ptr
+        move.l  #plane1,d0
+        bsr     poke_ptr
+        move.l  #plane2,d0
+        bsr     poke_ptr
 
-        ; silence all four channels before enabling audio DMA
+        ; silence Paula
         moveq   #3,d0
         lea     AUD0(a6),a1
-.sil:   move.l  #silence,(a1)           ; AUDxLC
-        move.w  #1,4(a1)                ; AUDxLEN
-        move.w  #200,6(a1)              ; AUDxPER
-        move.w  #0,8(a1)                ; AUDxVOL
+.sil:   move.l  #silence,(a1)
+        move.w  #1,4(a1)
+        move.w  #200,6(a1)
+        clr.w   8(a1)
         lea     $10(a1),a1
         dbra    d0,.sil
 
         move.l  #coplist,COP1LC(a6)
-        move.w  d0,COPJMP1(a6)          ; strobe
-        move.w  #$8780,DMACON(a6)       ; SET+DMAEN+BPLEN+COPEN
-        move.w  #$800f,DMACON(a6)       ; audio DMA on (silent loops)
+        move.w  d0,COPJMP1(a6)
+        move.w  #$83cf,DMACON(a6)       ; DMAEN+BPL+COP+BLT+AUD0-3
 
-        bsr     music_init
+        bsr     mt_init
         clr.w   frame
-        clr.w   fr_bar
         clr.w   bar
         clr.w   gphase
-        clr.w   scrphase
-        clr.w   scrhalf
-        clr.w   scridx
+        clr.w   scrollpx
+        clr.w   scene
+        move.w  #-1,cur_scene
 
-; ===================================================================
-;  Main loop: one tick per vertical blank
-; ===================================================================
 main:
         bsr     wait_vb
-        bsr     music_tick
+        bsr     mt_tick                 ; the module drives everything
         bsr     scene_tick
-        bsr     scroll_tick
+        bsr     dycp_tick
         addq.w  #1,frame
         bra     main
+
+; write a longword pointer as two copper move values: a1 -> hi,lo slots
+poke_ptr:
+        move.w  d0,d1
+        swap    d0
+        move.w  d0,(a1)                 ; xxxPTH value
+        move.w  d1,4(a1)                ; xxxPTL value
+        addq.l  #8,a1
+        rts
 
 wait_vb:
 .w:     move.l  VPOSR(a6),d0
@@ -113,269 +129,431 @@ wait_vb:
         rts
 
 ; ===================================================================
-;  Music: 4 event streams, one fetch/effect pass per frame
+;  ProTracker-subset replayer (notes, Fxx speed, Cxx volume, 0xy arp)
 ; ===================================================================
-music_init:
-        lea     chans,a2
-        lea     streams,a3
-        moveq   #3,d6
-.mi:    move.l  (a3)+,d0
-        move.l  d0,CH_PTR(a2)
-        move.l  d0,CH_BASE(a2)
-        move.w  #1,CH_WAIT(a2)
-        move.w  #1,CH_ARPN(a2)
-        clr.w   CH_ARPI(a2)
-        clr.w   CH_TRIG(a2)
-        clr.w   CH_1SHOT(a2)
-        lea     CH_SIZE(a2),a2
-        dbra    d6,.mi
+mt_init:
+        lea     module,a0
+        ; find highest pattern in the order table
+        moveq   #0,d0
+        lea     952(a0),a1
+        moveq   #127,d1
+.scan:  moveq   #0,d2
+        move.b  (a1)+,d2
+        cmp.w   d0,d2
+        ble.s   .ns
+        move.w  d2,d0
+.ns:    dbra    d1,.scan
+        addq.w  #1,d0                   ; pattern count
+        mulu    #1024,d0
+        lea     1084(a0),a1             ; pattern data
+        move.l  a1,mt_patterns
+        adda.l  d0,a1                   ; a1 = sample data
+        ; build the per-sample info table
+        lea     20(a0),a2               ; sample headers
+        lea     mt_samples,a3
+        moveq   #30,d1                  ; 31 samples
+.smp:   move.l  a1,(a3)+                ; data
+        moveq   #0,d2
+        move.w  22(a2),d2               ; length words
+        move.w  d2,(a3)+
+        moveq   #0,d3
+        move.w  26(a2),d3               ; loop start words
+        add.l   d3,d3
+        move.l  a1,d4
+        add.l   d3,d4
+        move.l  d4,(a3)+                ; loop ptr
+        move.w  28(a2),(a3)+            ; loop len words
+        moveq   #0,d3
+        move.b  25(a2),d3
+        move.w  d3,(a3)+                ; volume
+        add.l   d2,d2
+        adda.l  d2,a1
+        lea     30(a2),a2
+        dbra    d1,.smp
+        ; song state
+        moveq   #0,d0
+        move.w  d0,mt_songpos
+        move.w  d0,mt_row
+        move.w  d0,mt_counter
+        move.w  #6,mt_speed
+        ; channel state
+        lea     mt_chan,a2
+        moveq   #4*MC_SIZE/2-1,d1
+.cc:    clr.w   (a2)+
+        dbra    d1,.cc
         rts
 
-music_tick:
-        ; ---- bar / song position ----
-        addq.w  #1,fr_bar
-        cmp.w   #FRAMES_PER_BAR,fr_bar
-        blt.s   .nobar
-        clr.w   fr_bar
-        addq.w  #1,bar
-        cmp.w   #64,bar
-        blt.s   .nobar
-        clr.w   bar
-        bsr     music_init              ; loop the whole show
-.nobar:
-        ; ---- oneshot cleanup: samples fall into the silence loop ----
-        lea     chans,a2
-        moveq   #0,d6
-.osl:   tst.w   CH_1SHOT(a2)
-        beq.s   .osn
-        clr.w   CH_1SHOT(a2)
-        bsr     ch_regs                 ; a5 = AUDx base
-        move.l  #silence,(a5)
-        move.w  #1,4(a5)
-.osn:   lea     CH_SIZE(a2),a2
-        addq.w  #1,d6
-        cmp.w   #4,d6
-        bne.s   .osl
+mt_tick:
+        addq.w  #1,mt_counter
+        move.w  mt_counter,d0
+        cmp.w   mt_speed,d0
+        blt     mt_effects
+        clr.w   mt_counter
 
-        ; ---- advance each channel ----
-        clr.w   trigmask
-        lea     chans,a2
-        moveq   #0,d6
-.chl:   bsr     proc_ch
-        lea     CH_SIZE(a2),a2
-        addq.w  #1,d6
-        cmp.w   #4,d6
-        bne.s   .chl
+        ; ---- new row ----
+        lea     module,a0
+        moveq   #0,d0
+        move.w  mt_songpos,d0
+        lea     952(a0),a1
+        move.b  (a1,d0.w),d0            ; pattern number
+        mulu    #1024,d0
+        move.l  mt_patterns,a1
+        adda.l  d0,a1
+        move.w  mt_row,d0
+        lsl.w   #4,d0
+        adda.w  d0,a1                   ; a1 = 4 cells of this row
 
-        ; ---- apply triggers (batch: DMA off, set regs, DMA on) ----
-        move.w  trigmask,d0
-        beq.s   .done
-        move.w  d0,DMACON(a6)           ; stop the retriggered channels
-        lea     chans,a2
-        moveq   #0,d6
-.trl:   tst.w   CH_TRIG(a2)
-        beq.s   .trn
-        clr.w   CH_TRIG(a2)
-        bsr     trig_ch
-.trn:   lea     CH_SIZE(a2),a2
+        clr.w   mt_trigmask
+        lea     mt_chan,a2
+        moveq   #0,d6                   ; channel #
+.ch:    bsr     mt_cell
+        lea     MC_SIZE(a2),a2
+        lea     4(a1),a1
         addq.w  #1,d6
         cmp.w   #4,d6
-        bne.s   .trl
-        move.w  #250,d1                 ; let Paula fetch the silence
-.dly:   dbra    d1,.dly
-        move.w  trigmask,d0
+        bne.s   .ch
+
+        ; ---- apply triggers ----
+        move.w  mt_trigmask,d0
+        beq.s   .adv
+        move.w  d0,DMACON(a6)
+        lea     mt_chan,a2
+        moveq   #0,d6
+.tr:    tst.w   MC_TRIG(a2)
+        beq.s   .tn
+        clr.w   MC_TRIG(a2)
+        bsr     mt_start
+.tn:    lea     MC_SIZE(a2),a2
+        addq.w  #1,d6
+        cmp.w   #4,d6
+        bne.s   .tr
+        move.w  #300,d1
+.dl:    dbra    d1,.dl
+        move.w  mt_trigmask,d0
         or.w    #$8000,d0
-        move.w  d0,DMACON(a6)           ; restart
+        move.w  d0,DMACON(a6)
+        ; point the started channels at their loops (next fetch)
+        lea     mt_chan,a2
+        moveq   #0,d6
+.lp:    tst.w   MC_LOOPL(a2)
+        beq.s   .ln
+        bsr     mt_regs                 ; a5 = AUDx
+        move.l  MC_LOOP(a2),(a5)
+        move.w  MC_LOOPL(a2),4(a5)
+.ln:    lea     MC_SIZE(a2),a2
+        addq.w  #1,d6
+        cmp.w   #4,d6
+        bne.s   .lp
+
+.adv:   ; ---- advance row / song position ----
+        addq.w  #1,mt_row
+        cmp.w   #64,mt_row
+        blt.s   .done
+        clr.w   mt_row
+        addq.w  #1,mt_songpos
+        lea     module,a0
+        moveq   #0,d0
+        move.b  950(a0),d0              ; song length
+        cmp.w   mt_songpos,d0
+        bgt.s   .done
+        clr.w   mt_songpos
 .done:  rts
 
-; a5 = custom audio register base for channel d6
-ch_regs:
-        move.w  d6,d1
-        lsl.w   #4,d1
-        lea     AUD0(a6),a5
-        adda.w  d1,a5
-        rts
-
-; ---- advance channel d6 (state in a2) ----
-proc_ch:
-        subq.w  #1,CH_WAIT(a2)
-        bgt     .fx
-.fetch: move.l  CH_PTR(a2),a3
+; ---- decode one pattern cell: a1 = cell, a2 = chan state, d6 = ch ----
+mt_cell:
         moveq   #0,d0
-        move.b  (a3)+,d0
-        cmp.b   #$ff,d0
-        bne.s   .notend
-        move.l  CH_BASE(a2),a3          ; loop this stream
-        bra     .fetch2
-.notend:
-        cmp.b   #0,d0
-        bne.s   .nrest
-        ; rest: volume off
+        move.b  (a1),d0
+        and.w   #$f0,d0
         moveq   #0,d1
-        move.b  (a3)+,d1
-        move.w  d1,CH_WAIT(a2)
-        bsr     ch_regs
-        move.w  #0,8(a5)
-        bra.s   .store
-.nrest: cmp.b   #2,d0
-        bne.s   .ntie
-        moveq   #0,d1
-        move.b  (a3)+,d1
-        move.w  d1,CH_WAIT(a2)
-        bra.s   .store
-.ntie:  ; note (1) / arpnote (3) / oneshot (4)
-        move.w  d0,d5
-        moveq   #0,d1
-        move.b  (a3)+,d1
-        move.w  d1,CH_INST(a2)
-        moveq   #0,d1
-        move.b  (a3)+,d1
-        move.w  d1,CH_WAIT(a2)
-        move.w  #1,CH_ARPN(a2)
-        clr.w   CH_ARPI(a2)
-        cmp.w   #4,d5
-        beq.s   .trig                   ; oneshot: period from the table
-        ; read one or four big-endian period words
+        move.b  2(a1),d1
+        lsr.b   #4,d1
+        or.w    d1,d0                   ; sample number
         moveq   #0,d2
-        cmp.w   #3,d5
-        bne.s   .one
-        move.w  #4,CH_ARPN(a2)
-        moveq   #3,d3
-.arpl:  bsr.s   .rdword
-        move.w  d1,CH_PERS(a2,d2.w)
-        addq.w  #2,d2
-        dbra    d3,.arpl
-        bra.s   .trig
-.one:   bsr.s   .rdword
-        move.w  d1,CH_PERS(a2)
-.trig:  move.w  #1,CH_TRIG(a2)
-        moveq   #0,d1
-        move.w  d6,d1
-        moveq   #0,d2
-        bset    d1,d2
-        or.w    d2,trigmask
-.store: move.l  a3,CH_PTR(a2)
-        rts
-.fetch2:
-        move.l  a3,CH_PTR(a2)
-        bra     .fetch
-.rdword:
-        moveq   #0,d1
-        move.b  (a3)+,d1
-        lsl.w   #8,d1
-        move.b  (a3)+,d1
-        rts
-.fx:    ; sounding: cycle the arpeggio periods
-        move.w  CH_ARPN(a2),d1
-        cmp.w   #1,d1
-        beq.s   .fxd
-        move.w  CH_ARPI(a2),d2
-        addq.w  #1,d2
-        cmp.w   d1,d2
-        blt.s   .fxi
-        moveq   #0,d2
-.fxi:   move.w  d2,CH_ARPI(a2)
-        add.w   d2,d2
-        move.w  CH_PERS(a2,d2.w),d1
-        bsr     ch_regs
-        move.w  d1,6(a5)
-.fxd:   rts
+        move.b  (a1),d2
+        and.w   #$0f,d2
+        lsl.w   #8,d2
+        move.b  1(a1),d2                ; period
+        moveq   #0,d3
+        move.b  2(a1),d3
+        and.w   #$0f,d3                 ; effect
+        moveq   #0,d4
+        move.b  3(a1),d4                ; param
 
-; ---- program Paula for a (re)triggered channel d6 ----
-trig_ch:
-        move.w  CH_INST(a2),d1
-        mulu    #IN_SIZE,d1
-        lea     insts,a1
-        adda.l  d1,a1
-        bsr     ch_regs
-        move.l  IN_PTR(a1),(a5)         ; AUDxLC
-        move.w  IN_LEN(a1),4(a5)        ; AUDxLEN
-        move.w  IN_PER(a1),d1
-        tst.w   IN_1SH(a1)
-        beq.s   .melodic
-        move.w  d1,6(a5)                ; sample: fixed period
-        move.w  #1,CH_1SHOT(a2)
-        bra.s   .vol
-.melodic:
-        move.w  CH_PERS(a2),6(a5)
-.vol:   move.w  IN_VOL(a1),8(a5)
+        ; arpeggio param for this row (0 unless effect 0 with param)
+        clr.w   MC_ARP(a2)
+        tst.w   d3
+        bne.s   .noarp
+        tst.w   d4
+        beq.s   .noarp
+        move.w  d4,MC_ARP(a2)
+.noarp:
+        tst.w   d0
+        beq.s   .nosmp
+        ; latch sample info
+        move.w  d0,d5
+        subq.w  #1,d5
+        mulu    #14,d5
+        lea     mt_samples,a3
+        adda.l  d5,a3
+        move.l  (a3),MC_SMP(a2)
+        move.w  4(a3),MC_LEN(a2)
+        move.l  6(a3),MC_LOOP(a2)
+        move.w  10(a3),MC_LOOPL(a2)
+        move.w  12(a3),MC_VOL(a2)
+.nosmp:
+        tst.w   d2
+        beq.s   .noper
+        move.w  d2,MC_PER(a2)
+        bsr     mt_pidx                 ; cache the table index
+        move.w  #1,MC_TRIG(a2)
+        moveq   #0,d5
+        bset    d6,d5
+        or.w    d5,mt_trigmask
+.noper:
+        cmp.w   #$c,d3
+        bne.s   .novol
+        move.w  d4,MC_VOL(a2)
+        bsr     mt_regs
+        move.w  d4,8(a5)
+.novol: cmp.w   #$f,d3
+        bne.s   .nospd
+        tst.w   d4
+        beq.s   .nospd
+        cmp.w   #32,d4
+        bge.s   .nospd                  ; CIA tempos not supported
+        move.w  d4,mt_speed
+.nospd: rts
+
+; find PT table index of MC_PER -> MC_PIDX
+mt_pidx:
+        movem.l d0-d1/a0,-(sp)
+        lea     mt_periods,a0
+        moveq   #0,d0
+        move.w  MC_PER(a2),d1
+.f:     cmp.w   (a0)+,d1
+        beq.s   .got
+        addq.w  #1,d0
+        cmp.w   #36,d0
+        blt.s   .f
+        moveq   #12,d0                  ; fallback: C-2
+.got:   move.w  d0,MC_PIDX(a2)
+        movem.l (sp)+,d0-d1/a0
+        rts
+
+; a5 = AUDx register base for channel d6
+mt_regs:
+        move.w  d6,d5
+        lsl.w   #4,d5
+        lea     AUD0(a6),a5
+        adda.w  d5,a5
+        rts
+
+; program Paula for a triggered channel
+mt_start:
+        bsr     mt_regs
+        move.l  MC_SMP(a2),(a5)
+        move.w  MC_LEN(a2),4(a5)
+        move.w  MC_PER(a2),6(a5)
+        move.w  MC_VOL(a2),8(a5)
+        rts
+
+; ---- per-tick effects: arpeggio ----
+mt_effects:
+        lea     mt_chan,a2
+        moveq   #0,d6
+.ch:    move.w  MC_ARP(a2),d4
+        beq.s   .next
+        move.w  mt_counter,d0
+        divu    #3,d0
+        swap    d0                      ; remainder 0/1/2
+        move.w  d0,d1
+        moveq   #0,d2
+        cmp.w   #1,d1
+        blt.s   .base
+        beq.s   .x
+        move.w  d4,d2
+        and.w   #$0f,d2
+        bra.s   .base
+.x:     move.w  d4,d2
+        lsr.w   #4,d2
+        and.w   #$0f,d2
+.base:  move.w  MC_PIDX(a2),d1
+        add.w   d2,d1
+        cmp.w   #35,d1
+        ble.s   .ok
+        moveq   #35,d1
+.ok:    add.w   d1,d1
+        lea     mt_periods,a0
+        move.w  (a0,d1.w),d1
+        bsr     mt_regs
+        move.w  d1,6(a5)
+.next:  lea     MC_SIZE(a2),a2
+        addq.w  #1,d6
+        cmp.w   #4,d6
+        bne.s   .ch
+        rts
+
+mt_periods:
+        dc.w    856,808,762,720,678,640,604,570,538,508,480,453
+        dc.w    428,404,381,360,339,320,302,285,269,254,240,226
+        dc.w    214,202,190,180,170,160,151,143,135,127,120,113
+
+; ===================================================================
+;  Blitter helpers
+; ===================================================================
+blt_wait:
+        btst    #14,DMACONR(a6)
+.bw:    btst    #14,DMACONR(a6)
+        bne.s   .bw
+        rts
+
+; clear h rows of w words at a0 (screen-modulo aware): d0=w, d1=h, d2=mod
+blt_clear:
+        bsr     blt_wait
+        move.w  #$0100,BLTCON0(a6)
+        clr.w   BLTCON1(a6)
+        move.w  d2,BLTDMOD(a6)
+        move.l  a0,BLTDPTH(a6)
+        move.w  d1,d3
+        lsl.w   #6,d3
+        or.w    d0,d3
+        move.w  d3,BLTSIZE(a6)
+        rts
+
+; OR-blit a 32px-wide, d1-rows image (a0) to plane a1 at (d0=x, rows
+; preset in a1 base): 3-word blit with shift
+;   a0 = src (4 bytes/row), a1 = dest row0 byte addr, d0 = x, d1 = h
+blt_img:
+        bsr     blt_wait
+        move.w  d0,d2
+        and.w   #$f,d2
+        ror.w   #4,d2                   ; shift in bits 15-12
+        or.w    #$0bfa,d2               ; USEA|USEC|USED, LF = A|C
+        move.w  d2,BLTCON0(a6)
+        clr.w   BLTCON1(a6)
+        move.w  #$ffff,BLTAFWM(a6)
+        clr.w   BLTALWM(a6)             ; the spill word is masked away
+        move.w  #-2,BLTAMOD(a6)
+        move.w  #PLANEB-6,BLTCMOD(a6)
+        move.w  #PLANEB-6,BLTDMOD(a6)
+        move.l  a0,BLTAPTH(a6)
+        move.w  d0,d2
+        asr.w   #4,d2
+        add.w   d2,d2
+        lea     (a1,d2.w),a2
+        move.l  a2,BLTCPTH(a6)
+        move.l  a2,BLTDPTH(a6)
+        move.w  d1,d2
+        lsl.w   #6,d2
+        or.w    #3,d2
+        move.w  d2,BLTSIZE(a6)
         rts
 
 ; ===================================================================
-;  Scenes: build the 64-slot colour shadow, copy it into the copper
+;  Scene engine: bar timeline from the replayer position
 ; ===================================================================
 scene_tick:
-        move.w  bar,d0
+        ; bar = songpos*4 + row/16
+        move.w  mt_songpos,d0
+        lsl.w   #2,d0
+        move.w  mt_row,d1
+        lsr.w   #4,d1
+        add.w   d1,d0
+        move.w  d0,bar
         lea     scene_of_bar,a0
         moveq   #0,d1
         move.b  (a0,d0.w),d1
+        move.w  d1,scene
+        bsr     scene_palette           ; 6 copper words, cheap every frame
+        move.w  scene,d1
         add.w   d1,d1
         lea     scene_tab,a0
         move.w  (a0,d1.w),d1
         lea     scene_tab,a0
         jsr     (a0,d1.w)
         bsr     copy_shadow
-        bsr     text_colours
+        bsr     logo_colours
+        bsr     do_cast
         rts
 
 scene_tab:
-        dc.w    sc_intro-scene_tab
-        dc.w    sc_verse-scene_tab
-        dc.w    sc_drop-scene_tab
-        dc.w    sc_tunnel-scene_tab
-        dc.w    sc_finale-scene_tab
-        dc.w    sc_outro-scene_tab
+        dc.w    sc_black-scene_tab      ; 0 intro
+        dc.w    sc_verse-scene_tab      ; 1
+        dc.w    sc_drop-scene_tab       ; 2
+        dc.w    sc_tunnel-scene_tab     ; 3
+        dc.w    sc_finale-scene_tab     ; 4
+        dc.w    sc_black-scene_tab      ; 5 outro
 
-; ---- intro / outro: black backdrop ----
-sc_intro:
-sc_outro:
+; per-scene palette for colours 2-7 into the copper header
+scene_palette:
+        lea     pal_cats,a1
+        move.w  scene,d0
+        cmp.w   #2,d0
+        bne.s   .n1
+        lea     pal_ships,a1
+        bra.s   .go
+.n1:    cmp.w   #3,d0
+        bne.s   .n2
+        lea     pal_tunnel,a1
+        bra.s   .go
+.n2:    cmp.w   #1,d0                   ; verse: horses take over at bar 8
+        bne.s   .go
+        cmp.w   #8,bar
+        blt.s   .go
+        lea     pal_horses,a1
+.go:    lea     coplist,a0
+        lea     COPOFF_PAL+4(a0),a0     ; +4: skip COLOR01 (logo gradient)
+        moveq   #5,d0
+.c:     move.w  (a1)+,(a0)
+        addq.l  #4,a0
+        dbra    d0,.c
+        rts
+
+sc_black:
         lea     shadow,a0
         moveq   #31,d0
 .c:     clr.l   (a0)+
         dbra    d0,.c
         rts
 
-; ---- verse: four sine-bobbing copper bars ----
 sc_verse:
-        bsr     sc_intro                ; clear first
+        bsr     sc_black
         lea     shadow,a0
         lea     sine64,a1
-        moveq   #0,d5                   ; bar number 0-3
+        moveq   #0,d5
 .bar:   move.w  frame,d0
         cmp.w   #2,d5
-        blt.s   .slow
+        blt.s   .s
         add.w   d0,d0
-.slow:  move.w  d5,d1
+.s:     move.w  d5,d1
         lsl.w   #4,d1
         add.w   d1,d0
         and.w   #63,d0
         moveq   #0,d1
-        move.b  (a1,d0.w),d1            ; centre slot 3..38
+        move.b  (a1,d0.w),d1
         subq.w  #3,d1
-        add.w   d1,d1                   ; word offset
+        add.w   d1,d1
         lea     ramp_cyan,a3
         move.w  d5,d2
-        lsl.w   #4,d2                   ; ramp stride is 16 bytes
+        lsl.w   #4,d2
         adda.w  d2,a3
         lea     shadow,a2
         adda.w  d1,a2
         moveq   #6,d2
-.rmp:   move.w  (a3)+,(a2)+
-        dbra    d2,.rmp
+.r:     move.w  (a3)+,(a2)+
+        dbra    d2,.r
         addq.w  #1,d5
         cmp.w   #4,d5
         bne.s   .bar
         rts
 
-; ---- drop: sunset sky + accelerating grid lines ----
 sc_drop:
         lea     shadow,a0
         lea     sky_grad,a1
         moveq   #25,d0
 .sky:   move.w  (a1)+,(a0)+
         dbra    d0,.sky
-        bsr     grid_ground
-        rts
+        bra     grid_ground
 
 grid_ground:
         addq.w  #1,gphase
@@ -392,14 +570,13 @@ grid_ground:
         dbra    d0,.g
         rts
 
-; ---- tunnel: breathing ring colours (pre-generated phases) ----
 sc_tunnel:
         addq.w  #1,gphase
         cmp.w   #96,gphase
         blt.s   .ok
         clr.w   gphase
 .ok:    move.w  gphase,d0
-        lsl.w   #7,d0                   ; *128 bytes per phase
+        lsl.w   #7,d0
         lea     tunnel_anim,a1
         adda.l  d0,a1
         lea     shadow,a0
@@ -408,7 +585,6 @@ sc_tunnel:
         dbra    d0,.t
         rts
 
-; ---- finale: rolling rainbow sky over the grid ----
 sc_finale:
         lea     shadow,a0
         lea     rainbow32,a1
@@ -423,10 +599,8 @@ sc_finale:
         addq.w  #1,d0
         cmp.w   #26,d0
         bne.s   .f
-        bsr     grid_ground
-        rts
+        bra     grid_ground
 
-; ---- write the shadow into the copper list via the offset table ----
 copy_shadow:
         lea     shadow,a0
         lea     copoff_c00,a1
@@ -437,114 +611,497 @@ copy_shadow:
         dbra    d0,.l
         rts
 
-; ---- rainbow-cycle the text colour slots ----
-text_colours:
+; roll the metallic gradient through the title letters
+logo_colours:
         lea     copoff_c01,a1
         lea     coplist,a2
-        lea     rainbow32,a3
+        lea     logo_grad,a3
         move.w  frame,d2
         lsr.w   #2,d2
         moveq   #0,d0
 .l:     move.w  d0,d1
         add.w   d2,d1
-        and.w   #31,d1
-        add.w   d1,d1
+        and.w   #63,d1
+        cmp.w   #44,d1
+        blt.s   .in
+        moveq   #43,d1
+.in:    add.w   d1,d1
         move.w  (a3,d1.w),d1
         move.w  (a1)+,d3
         move.w  d1,(a2,d3.w)
         addq.w  #1,d0
-        cmp.w   #9,d0
+        cmp.w   #44,d0
         bne.s   .l
         rts
 
 ; ===================================================================
-;  The big scroller: 32px letters, hardware fine scroll via BPLCON1
+;  The cast: clear planes 1+2 in the action bands, then draw
 ; ===================================================================
-scroll_tick:
-        move.w  scrphase,d0
-        addq.w  #1,d0
-        cmp.w   #8,d0
-        blt.s   .fine
-        ; coarse step: shift the band 16px left, feed a glyph half
-        clr.w   d0
-        bsr     band_shift
-        bsr     band_feed
-.fine:  move.w  d0,scrphase
-        ; BPLCON1 value: 14,12,10,...,0 across the 8 phases
-        moveq   #7,d1
-        sub.w   d0,d1
-        add.w   d1,d1
+do_cast:
+        ; clear the cast band in both bob planes
+        lea     plane1+CAST_Y0*PLANEB,a0
+        moveq   #22,d0
+        move.w  #CAST_Y1-CAST_Y0,d1
+        moveq   #0,d2
+        bsr     blt_clear
+        lea     plane2+CAST_Y0*PLANEB,a0
+        moveq   #22,d0
+        move.w  #CAST_Y1-CAST_Y0,d1
+        moveq   #0,d2
+        bsr     blt_clear
+
+        move.w  scene,d0
+        cmp.w   #1,d0
+        beq     cast_verse
+        cmp.w   #2,d0
+        beq     cast_ships
+        cmp.w   #3,d0
+        beq     cast_tunnel
+        cmp.w   #4,d0
+        beq     cast_finale
+        rts
+
+; ---- walking bob: d0=x d1=y, a3=frame table (4 entries of p1/p2) ----
+draw_bob:
+        movem.l d0-d1/a1/a3,-(sp)
+        move.l  (a3),a0                 ; plane-1 image
         move.w  d1,d2
-        lsl.w   #4,d2
-        or.w    d2,d1
-        lea     coplist,a2
-        move.w  d1,COPOFF_SCR(a2)
+        mulu    #PLANEB,d2
+        lea     plane1,a1
+        adda.l  d2,a1
+        move.w  #42,d1
+        bsr     blt_img
+        movem.l (sp),d0-d1/a1/a3
+        move.l  4(a3),a0                ; plane-2 image
+        move.w  d1,d2
+        mulu    #PLANEB,d2
+        lea     plane2,a1
+        adda.l  d2,a1
+        move.w  #42,d1
+        bsr     blt_img
+        movem.l (sp)+,d0-d1/a1/a3
         rts
 
-band_shift:
-        lea     logo+200*40,a0
-        moveq   #31,d1
-.row:   moveq   #18,d2
-        move.l  a0,a1
-.w:     move.w  2(a1),(a1)+
-        dbra    d2,.w
-        clr.w   (a1)
-        lea     40(a0),a0
-        dbra    d1,.row
+; walker position: d5 = index -> d0 x, d1 y (sine walk across 320)
+walk_pos:
+        move.w  frame,d0
+        move.w  d5,d2
+        mulu    #67,d2
+        add.w   d2,d0
+        and.w   #$1ff,d0
+        cmp.w   #288,d0
+        blt.s   .in
+        moveq   #-32,d0                 ; parked off-screen this lap
         rts
-
-band_feed:
-        ; glyph half -> rightmost 2 bytes of each band row
-        lea     scrolltext,a0
-        move.w  scridx,d1
+.in:    move.w  frame,d1
+        lsr.w   #2,d1
+        add.w   d5,d1
+        and.w   #63,d1
+        lea     sine64,a0
         moveq   #0,d2
         move.b  (a0,d1.w),d2
-        cmp.b   #$ff,d2
-        bne.s   .ok
-        clr.w   scridx
-        clr.w   scrhalf
-        moveq   #0,d1
-        move.b  (a0),d2
-.ok:    lsl.w   #7,d2                   ; glyph * 128 bytes
-        lea     bigfont,a1
+        lsr.w   #2,d2
+        add.w   #CAST_Y0+30,d2
+        move.w  d2,d1
+        rts
+
+cast_verse:
+        move.w  bar,d0
+        cmp.w   #8,d0
+        bge.s   .horses
+        moveq   #0,d5
+.cats:  bsr     walk_pos
+        tst.w   d0
+        bmi.s   .cn
+        ; 4-frame saw animation
+        move.w  frame,d2
+        lsr.w   #2,d2
+        add.w   d5,d2
+        and.w   #3,d2
+        lsl.w   #3,d2
+        lea     cat_frames,a3
+        adda.w  d2,a3
+        bsr     draw_bob
+.cn:    addq.w  #1,d5
+        cmp.w   #3,d5
+        bne.s   .cats
+        rts
+.horses:
+        moveq   #0,d5
+.h:     bsr     walk_pos
+        tst.w   d0
+        bmi.s   .hn
+        move.w  frame,d2
+        lsr.w   #3,d2
+        add.w   d5,d2
+        and.w   #1,d2
+        lsl.w   #3,d2
+        lea     horse_frames,a3
+        adda.w  d2,a3
+        bsr     draw_bob
+.hn:    addq.w  #1,d5
+        cmp.w   #2,d5
+        bne.s   .h
+        ; one magic circle drifting above
+        move.w  frame,d0
+        and.w   #$1ff,d0
+        cmp.w   #288,d0
+        bge.s   .done
+        move.w  #CAST_Y0+8,d1
+        move.w  frame,d2
+        lsr.w   #3,d2
+        and.w   #1,d2
+        lsl.w   #3,d2
+        lea     circle_frames,a3
+        adda.w  d2,a3
+        bsr     draw_bob
+.done:  rts
+
+cast_tunnel:
+        moveq   #0,d5
+.d:     bsr     walk_pos
+        tst.w   d0
+        bmi.s   .dn
+        move.w  frame,d2
+        lsr.w   #3,d2
+        add.w   d5,d2
+        and.w   #1,d2
+        lsl.w   #3,d2
+        lea     dancer_frames,a3
+        adda.w  d2,a3
+        bsr     draw_bob
+.dn:    addq.w  #1,d5
+        cmp.w   #2,d5
+        bne.s   .d
+        move.w  frame,d0
+        lsr.w   #1,d0
+        and.w   #$ff,d0
+        add.w   #16,d0
+        move.w  #CAST_Y0+12,d1
+        lea     ball_frames,a3
+        bsr     draw_bob
+        rts
+
+cast_finale:
+        moveq   #0,d5
+.c:     bsr     walk_pos
+        tst.w   d0
+        bmi.s   .cn
+        move.w  d5,d2
+        and.w   #1,d2
+        bne.s   .fh
+        lea     cat_frames,a3
+        bra.s   .fd
+.fh:    lea     horse_frames,a3
+.fd:    bsr     draw_bob
+.cn:    addq.w  #1,d5
+        cmp.w   #4,d5
+        bne.s   .c
+        rts
+
+; ===================================================================
+;  Vector spaceships (drop scene): CPU XOR outline -> blitter fill ->
+;  OR into both bob planes (colour 6, with parity cockpit holes)
+; ===================================================================
+SHIPBUF_W = 3                   ; words (48 px)
+SHIPBUF_H = 44
+
+cast_ships:
+        moveq   #0,d7                   ; ship number 0/1
+.ship:  ; clear the work buffer
+        lea     shipbuf,a0
+        moveq   #SHIPBUF_W,d0
+        move.w  #SHIPBUF_H,d1
+        moveq   #0,d2
+        bsr     blt_clear
+        bsr     blt_wait
+        ; angle wobble per ship
+        move.w  frame,d0
+        move.w  d7,d1
+        lsl.w   #7,d1
+        add.w   d1,d0
+        and.w   #255,d0
+        lea     rot_sine,a0
+        move.b  (a0,d0.w),d1
+        ext.w   d1
+        asr.w   #4,d1                   ; gentle tilt -8..8 -> sin idx
+        move.w  d1,ship_tilt
+        ; draw the hull + canopy outlines
+        lea     ship_poly,a0
+        move.w  #SHIP_PTS,d0
+        bsr     poly_outline
+        lea     ship_canopy,a0
+        move.w  #CANOPY_PTS,d0
+        bsr     poly_outline
+        ; blitter fill (inclusive, descending)
+        bsr     blt_wait
+        move.w  #$09f0,BLTCON0(a6)
+        move.w  #$000a,BLTCON1(a6)
+        move.w  #$ffff,BLTAFWM(a6)
+        move.w  #$ffff,BLTALWM(a6)
+        clr.w   BLTAMOD(a6)
+        clr.w   BLTDMOD(a6)
+        lea     shipbuf+SHIPBUF_W*2*SHIPBUF_H-2,a0
+        move.l  a0,BLTAPTH(a6)
+        move.l  a0,BLTDPTH(a6)
+        move.w  #SHIPBUF_H*64+SHIPBUF_W,BLTSIZE(a6)
+        ; position: swoop across the sky
+        move.w  frame,d0
+        move.w  d7,d1
+        lsl.w   #8,d1
+        add.w   d1,d0
+        and.w   #$1ff,d0
+        move.w  #300,d1
+        sub.w   d0,d1                   ; right to left
+        cmp.w   #-48,d1
+        ble.s   .next
+        cmp.w   #288,d1
+        bge.s   .next
+        move.w  d1,d0
+        bpl.s   .xo
+        moveq   #0,d0
+.xo:    move.w  frame,d2
+        lsr.w   #1,d2
+        move.w  d7,d3
+        lsl.w   #5,d3
+        add.w   d3,d2
+        and.w   #63,d2
+        lea     sine64,a0
+        moveq   #0,d3
+        move.b  (a0,d2.w),d3
+        add.w   #CAST_Y0-70,d3          ; fly high in the sky band
+        ; OR the ship into both planes
+        movem.w d0/d3,-(sp)
+        lea     shipbuf,a0
+        move.w  d3,d2
+        mulu    #PLANEB,d2
+        lea     plane1,a1
         adda.l  d2,a1
-        move.w  scrhalf,d3
-        beq.s   .h0
-        lea     64(a1),a1
-.h0:    lea     logo+200*40+38,a2
-        moveq   #31,d4
-.row:   move.b  (a1)+,(a2)
-        move.b  (a1)+,1(a2)
-        lea     40(a2),a2
-        dbra    d4,.row
-        ; advance half / character
-        move.w  scrhalf,d3
-        eor.w   #1,d3
-        move.w  d3,scrhalf
-        tst.w   d3
-        bne.s   .done
-        addq.w  #1,scridx
+        move.w  #SHIPBUF_H,d1
+        bsr     blt_img3
+        movem.w (sp)+,d0/d3
+        lea     shipbuf,a0
+        move.w  d3,d2
+        mulu    #PLANEB,d2
+        lea     plane2,a1
+        adda.l  d2,a1
+        move.w  #SHIPBUF_H,d1
+        bsr     blt_img3
+.next:  addq.w  #1,d7
+        cmp.w   #2,d7
+        bne     .ship
+        rts
+
+; like blt_img but 4-word wide (48px source + shift spill)
+blt_img3:
+        bsr     blt_wait
+        move.w  d0,d2
+        and.w   #$f,d2
+        ror.w   #4,d2
+        or.w    #$0bfa,d2
+        move.w  d2,BLTCON0(a6)
+        clr.w   BLTCON1(a6)
+        move.w  #$ffff,BLTAFWM(a6)
+        clr.w   BLTALWM(a6)
+        move.w  #-2,BLTAMOD(a6)
+        move.w  #PLANEB-8,BLTCMOD(a6)
+        move.w  #PLANEB-8,BLTDMOD(a6)
+        move.l  a0,BLTAPTH(a6)
+        move.w  d0,d2
+        asr.w   #4,d2
+        add.w   d2,d2
+        lea     (a1,d2.w),a2
+        move.l  a2,BLTCPTH(a6)
+        move.l  a2,BLTDPTH(a6)
+        move.w  d1,d2
+        lsl.w   #6,d2
+        or.w    #4,d2
+        move.w  d2,BLTSIZE(a6)
+        rts
+
+; ---- rotate/scale polygon a0 (d0 points) and XOR its outline into
+;      shipbuf, one dot per row (fill parity) ----
+poly_outline:
+        move.w  d0,d5
+        subq.w  #1,d5
+        lea     poly_xy,a1
+        move.w  d0,-(sp)
+        ; transform all points: x' = 24 + x - (y*tilt)>>5, y' = 20 + y/?
+.pt:    move.w  (a0)+,d1                ; px
+        move.w  (a0)+,d2                ; py
+        move.w  ship_tilt,d3
+        muls    d1,d3
+        asr.w   #5,d3
+        move.w  d2,d4
+        add.w   d3,d4                   ; shear = poor man's rotation
+        add.w   #22,d4
+        add.w   #24,d1
+        move.w  d1,(a1)+
+        move.w  d4,(a1)+
+        dbra    d5,.pt
+        ; XOR-walk the edges
+        move.w  (sp)+,d5
+        lea     poly_xy,a1
+        move.w  d5,d6
+        subq.w  #1,d6
+.edge:  move.w  (a1),d0                 ; x1
+        move.w  2(a1),d1                ; y1
+        move.w  4(a1),d2                ; x2
+        move.w  6(a1),d3                ; y2
+        tst.w   d6
+        bne.s   .e2
+        ; last edge closes back to point 0
+        lea     poly_xy,a2
+        move.w  (a2),d2
+        move.w  2(a2),d3
+.e2:    bsr     edge_dots
+        addq.l  #4,a1
+        dbra    d6,.edge
+        rts
+
+; one XOR dot per scanline from (d0,d1) to (d2,d3), y half-open
+; (exactly one parity flip per row per edge crossing -> fillable)
+edge_dots:
+        movem.l d0-d6/a0,-(sp)
+        cmp.w   d1,d3
+        beq.s   .out                    ; horizontal: no parity change
+        bgt.s   .down
+        exg     d0,d2
+        exg     d1,d3
+.down:  ; d1 < d3: walk rows y = d1 .. d3-1, x in 8.8 fixed point
+        move.w  d2,d4
+        sub.w   d0,d4                   ; dx (|dx| <= 56)
+        move.w  d3,d5
+        sub.w   d1,d5                   ; dy > 0
+        ext.l   d4
+        asl.l   #8,d4
+        divs    d5,d4                   ; x step, 8.8
+        move.w  d0,d2
+        asl.w   #8,d2                   ; x accumulator, 8.8
+        move.w  d5,d6
+        subq.w  #1,d6
+.yl:    cmp.w   #SHIPBUF_H-1,d1
+        bhi.s   .sk                     ; y outside the buffer
+        move.w  d2,d0
+        asr.w   #8,d0
+        cmp.w   #SHIPBUF_W*16-1,d0
+        bhi.s   .sk                     ; x outside (negative too)
+        move.w  d1,d3
+        mulu    #SHIPBUF_W*2,d3
+        lea     shipbuf,a0
+        adda.w  d3,a0
+        move.w  d0,d3
+        lsr.w   #3,d3
+        adda.w  d3,a0
+        not.w   d0
+        and.w   #7,d0
+        bchg    d0,(a0)                 ; XOR the parity dot
+.sk:    add.w   d4,d2
+        addq.w  #1,d1
+        dbra    d6,.yl
+.out:   movem.l (sp)+,d0-d6/a0
+        rts
+
+; ===================================================================
+;  DYCP scroller: every letter on its own sine
+; ===================================================================
+dycp_tick:
+        ; clear the band in plane 0
+        lea     plane0+DYCP_Y*PLANEB,a0
+        moveq   #22,d0
+        move.w  #256-DYCP_Y,d1
+        moveq   #0,d2
+        bsr     blt_clear
+
+        addq.w  #2,scrollpx             ; 2 px per frame
+        move.w  scrollpx,d0
+        cmp.w   #26,d0
+        blt.s   .nof
+        clr.w   scrollpx
+        addq.w  #1,scrollhead
+        lea     scrolltext,a0
+        move.w  scrollhead,d1
+        cmp.b   #$ff,(a0,d1.w)
+        bne.s   .nof
+        clr.w   scrollhead
+.nof:
+        move.w  scrollpx,d7
+        neg.w   d7                      ; first letter x
+        move.w  scrollhead,d6           ; text index
+.loop:  cmp.w   #320,d7
+        bge.s   .done
+        lea     scrolltext,a0
+        move.b  (a0,d6.w),d0
+        cmp.b   #$ff,d0
+        bne.s   .ok
+        clr.w   d6                      ; wrap mid-line
+        move.b  (a0),d0
+.ok:    tst.w   d7
+        bmi.s   .skip                   ; clipped at the left edge
+        ; y = per-letter sine
+        move.w  d6,d1
+        mulu    #11,d1
+        move.w  frame,d2
+        add.w   d2,d1
+        and.w   #127,d1
+        lea     dycp_sine,a1
+        moveq   #0,d2
+        move.b  (a1,d1.w),d2
+        add.w   #DYCP_Y+2,d2
+        ; blit the glyph
+        moveq   #0,d1
+        move.b  d0,d1
+        lsl.w   #7,d1                   ; glyph * 128 bytes
+        lea     dycp_font,a0
+        adda.l  d1,a0
+        move.w  d2,d1
+        mulu    #PLANEB,d1
+        lea     plane0,a1
+        adda.l  d1,a1
+        move.w  d7,d0
+        move.w  #32,d1
+        bsr     blt_img
+.skip:  add.w   #26,d7
+        addq.w  #1,d6
+        bra.s   .loop
 .done:  rts
 
 ; ===================================================================
-;  Variables (fast RAM)
+;  Variables
 ; ===================================================================
-frame:    dc.w 0
-fr_bar:   dc.w 0
-bar:      dc.w 0
-gphase:   dc.w 0
-scrphase: dc.w 0
-scrhalf:  dc.w 0
-scridx:   dc.w 0
-trigmask: dc.w 0
-chans:    ds.b CH_SIZE*4
-shadow:   ds.w 64
+frame:      dc.w 0
+bar:        dc.w 0
+scene:      dc.w 0
+cur_scene:  dc.w 0
+gphase:     dc.w 0
+scrollpx:   dc.w 0
+scrollhead: dc.w 0
+ship_tilt:  dc.w 0
+mt_songpos: dc.w 0
+mt_row:     dc.w 0
+mt_counter: dc.w 0
+mt_speed:   dc.w 6
+mt_trigmask: dc.w 0
+mt_patterns: dc.l 0
+mt_samples: ds.b 31*14
+mt_chan:    ds.b MC_SIZE*4
+shadow:     ds.w 64
+poly_xy:    ds.w 32
 
-streams:
-        dc.l stream0,stream1,stream2,stream3
+cat_frames:
+        dc.l bob_cat0_1,bob_cat0_2,bob_cat1_1,bob_cat1_2
+        dc.l bob_cat2_1,bob_cat2_2,bob_cat3_1,bob_cat3_2
+horse_frames:
+        dc.l bob_horse0_1,bob_horse0_2,bob_horse1_1,bob_horse1_2
+ball_frames:
+        dc.l bob_ball0_1,bob_ball0_2,bob_ball1_1,bob_ball1_2
+dancer_frames:
+        dc.l bob_dancer0_1,bob_dancer0_2,bob_dancer1_1,bob_dancer1_2
+circle_frames:
+        dc.l bob_circle0_1,bob_circle0_2,bob_circle1_1,bob_circle1_2
 
 ; ===================================================================
-;  Chip data: copper list, tables, samples, the screen
+;  Chip data
 ; ===================================================================
         section chip,data_c
 
@@ -552,9 +1109,14 @@ silence: dc.w 0,0
 
         include "amiga_data.i"
 
-samples:
-        incbin  "samples.raw"
+module:
+        incbin  "motorsag.mod"
         even
-logo:
+plane0:
         incbin  "logo.raw"
         even
+
+        section chipbss,bss_c
+plane1:  ds.b PLANEB*256
+plane2:  ds.b PLANEB*256
+shipbuf: ds.b SHIPBUF_W*2*SHIPBUF_H
