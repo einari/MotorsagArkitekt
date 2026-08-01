@@ -73,10 +73,15 @@ def resample(seg, sr):
                      for a, b in zip(pos[:-1], pos[1:])])
 
 
-def to_nibbles(seg):
+def to_nibbles(seg, sr):
+    # audibility: high-pass the mud away, compress hard, normalize
+    spec = np.fft.rfft(seg)
+    freqs = np.fft.rfftfreq(len(seg), 1 / sr)
+    spec[freqs < 120] = 0
+    seg = np.fft.irfft(spec, len(seg))
     peak = np.abs(seg).max() + 1e-9
     seg = seg / peak
-    seg = np.sign(seg) * np.abs(seg) ** 0.65          # mild companding
+    seg = np.sign(seg) * np.abs(seg) ** 0.55          # strong companding
     fade = int(0.01 * RATE)
     seg[:fade] *= np.linspace(0, 1, fade)
     seg[-fade:] *= np.linspace(1, 0, fade)
@@ -108,7 +113,7 @@ def main():
         w.writeframes((np.clip(seg, -1, 1) * 32767).astype('<i2').tobytes())
         w.close()
 
-        q = to_nibbles(resample(seg, sr))
+        q = to_nibbles(resample(seg, sr), RATE)
         packed = bytes((q[j] << 4) | q[j + 1] for j in range(0, len(q), 2))
         blobs.append(packed)
 
