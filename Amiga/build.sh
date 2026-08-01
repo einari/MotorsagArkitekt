@@ -5,9 +5,10 @@
 #   build:  make CPU=m68k SYNTAX=mot   -> put vasmm68k_mot on your PATH
 # Python 3 + numpy regenerate the data files (committed, so optional).
 #
-# Output:  motorsag  - Amiga hunk executable (run from CLI/Workbench on
-#                      a PAL A500 or any Amiga emulator; takes over the
-#                      machine and loops forever)
+# Outputs: motorsag      - Amiga hunk executable
+#          motorsag.adf  - bootable floppy image (needs amitools' xdftool:
+#                          pip install amitools) — insert into FS-UAE /
+#                          WinUAE / a real A500 with a Gotek and boot
 set -e
 cd "$(dirname "$0")"
 
@@ -18,7 +19,7 @@ else
     echo "[1/2] python3/numpy not found - using committed data files"
 fi
 
-echo "[2/2] assembling -> motorsag"
+echo "[2/3] assembling -> motorsag"
 VASM="${VASM:-vasmm68k_mot}"
 if ! command -v "$VASM" >/dev/null 2>&1; then
     echo "error: vasmm68k_mot not found (set VASM=/path/to/vasmm68k_mot)"
@@ -26,6 +27,18 @@ if ! command -v "$VASM" >/dev/null 2>&1; then
 fi
 "$VASM" -Fhunkexe -o motorsag motorsag.s
 
+echo "[3/3] building bootable disk -> motorsag.adf"
+XDF="${XDF:-xdftool}"
+if command -v "$XDF" >/dev/null 2>&1; then
+    rm -f motorsag.adf
+    "$XDF" motorsag.adf create + format "MOTORSAG" ofs + boot install
+    "$XDF" motorsag.adf makedir s
+    "$XDF" motorsag.adf write startup-sequence s/startup-sequence
+    "$XDF" motorsag.adf write motorsag
+else
+    echo "   (xdftool not found - skipping the .adf; pip install amitools)"
+fi
+
 echo
-ls -l motorsag
-echo "run it on a PAL A500 (or FS-UAE/WinUAE): execute 'motorsag' from CLI"
+ls -l motorsag motorsag.adf 2>/dev/null
+echo "boot motorsag.adf in FS-UAE/WinUAE (A500, PAL) - or run 'motorsag' from a CLI"

@@ -49,20 +49,24 @@ cd Amiga
 ./build.sh                      # -> motorsag (hunk executable)
 ```
 
-Python 3 + numpy regenerate `amiga_data.i`, `samples.raw` and `logo.raw`
-(they are committed, so vasm alone can build).
+Python 3 + numpy regenerate `amiga_data.i`, `samples.raw` and `logo.raw`,
+and [amitools](https://pypi.org/project/amitools/)' `xdftool`
+(`pip install amitools`) packs the bootable disk. All generated files and
+both build products are committed, so vasm alone can rebuild the
+executable, and nothing at all is needed just to run it.
 
 ## Run
 
-Copy `motorsag` onto any disk an A500 can see (or a shared folder in
-FS-UAE / WinUAE with an A500 PAL config) and run it from the CLI:
+**Boot `motorsag.adf`** — it's a bootable floppy. In
+[FS-UAE](https://fs-uae.net/) (or WinUAE) pick an **A500, PAL** config,
+insert `motorsag.adf` as DF0, start — the demo boots straight from the
+disk. Same story on a real A500 via a Gotek. (You still need a Kickstart
+1.3 ROM configured in the emulator, as with any Amiga software.)
 
-```
-1> motorsag
-```
+Alternatively, run the plain `motorsag` executable from any CLI/shell.
 
-It takes over the machine (interrupts off, own copper list) and loops the
-full show forever — reset to exit, like the old days.
+Either way it takes over the machine (interrupts off, own copper list)
+and loops the full show forever — reset to exit, like the old days.
 
 ## Files
 
