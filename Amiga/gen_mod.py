@@ -132,9 +132,9 @@ def make_melodic(name, fname, root_pt_idx, notes_semis, volume, loop=False):
     span = s_hi - s_lo
     assert span <= 35, \
         f'{name}: {span} semitone range does not fit the PT table'
-    # place the lowest needed note on a table index (root near the
-    # requested one when possible); semi_off maps semitones -> indices
-    pos = min(max(root_pt_idx + (s_lo - root_semi), 0), 35 - span)
+    # centre the note range around table index 17 (period ~320, i.e. a
+    # healthy ~11 kHz playback) so no note plays at a muddy crawl
+    pos = min(max(17 - span // 2, 0), 35 - span)
     f_lo = 440.0 * 2 ** ((s_lo - 57) / 12)
     want_spc = (PAULA / PT_PERIODS[pos]) / f_lo
     have_spc = sr / f0
@@ -143,8 +143,12 @@ def make_melodic(name, fname, root_pt_idx, notes_semis, volume, loop=False):
     ls, ll = find_loop(data, want_spc) if loop else (0, 1)
     inst = Instrument(name, data, volume, (ls, ll), root_idx=pos)
     inst.semi_off = s_lo - pos                  # our semitone -> PT index
+    rate_lo = PAULA / PT_PERIODS[pos]
+    rate_hi = PAULA / PT_PERIODS[pos + span]
+    note = ' <-- SLOW' if rate_lo < 6000 else ''
     print(f'  {name:12s} {fname:16s} f0={f0:6.1f}Hz k={k:5.2f} '
-          f'{len(data):5d}B lowest@{pos} loop={inst.loop}')
+          f'{len(data):5d}B rates {rate_lo/1000:.1f}-{rate_hi/1000:.1f}kHz'
+          f'{note}')
     return inst
 
 
@@ -188,6 +192,15 @@ class Cell:
         self.par = 0
 
 
+BASS_FLOOR = 17                 # e1: lower bass notes transpose up an octave
+
+
+def bass_note(n):
+    while n < BASS_FLOOR:
+        n += 12
+    return n
+
+
 def frame_to_row(f):
     bar, off = divmod(f, gm.BAR)
     if off in E8_CUM:
@@ -224,10 +237,10 @@ def build_patterns(insts, voc_rows):
 
     ARPFX = {gm.ARPM: 0x37, gm.ARPJ: 0x47, gm.ARP7: 0x4A}
 
-    # ch0: bass (the soft PAD pulses of the intro/outro play quietly)
+    # ch0: bass (sub-E1 notes transpose up; intro/outro pulses play soft)
     for row, n, cur in walk(gm.v3):
         soft = 0x28 if cur == gm.PAD else 0
-        put(0, row, I_BASS, melodic_idx(I_BASS, n),
+        put(0, row, I_BASS, melodic_idx(I_BASS, bass_note(n)),
             0xC if soft else 0, soft)
     # ch1: arps / pads
     for row, n, cur in walk(gm.v2):
@@ -321,14 +334,15 @@ def main():
     need = {'bass': [], 'arp': [], 'lead': [], 'pad': []}
     for e in gm.v3.ev:
         if e[0] == 'note':
-            need['bass'].append(note_semi(e[1]))
+            need['bass'].append(note_semi(bass_note(e[1])))
     cur = None
     for e in gm.v2.ev:
         if e[0] == 'inst':
             cur = e[1]
         elif e[0] == 'note':
             if cur in (gm.ARPM, gm.ARPJ, gm.ARP7):
-                need['arp'] += [note_semi(e[1]), note_semi(e[1]) + 12]
+                # the 0xy arpeggio adds at most 10 semitones (dom7)
+                need['arp'] += [note_semi(e[1]), note_semi(e[1]) + 10]
             else:
                 need['pad'].append(note_semi(e[1]))
     cur = None
@@ -341,12 +355,12 @@ def main():
 
     print('instruments:')
     ins = []
-    ins.append(make_melodic('dxbass', 'DXBass.wav', 8, need['bass'], 56,
+    ins.append(make_melodic('bass', 'SyntheBass.wav', 17, need['bass'], 58,
                             loop=True))
-    ins.append(make_melodic('polysynth', 'PolySynth.wav', 20, need['arp'], 30))
-    ins.append(make_melodic('leader', 'Leader.wav', 22, need['lead'], 52,
+    ins.append(make_melodic('arp', 'Squares.wav', 17, need['arp'], 32))
+    ins.append(make_melodic('lead', 'Leader.wav', 17, need['lead'], 52,
                             loop=True))
-    ins.append(make_melodic('analogstring', 'AnalogString.wav', 18,
+    ins.append(make_melodic('strings', 'AnalogString.wav', 17,
                             need['pad'], 40, loop=True))
     ins.append(make_oneshot('bassdrum2', 'BassDrum2.wav', 62, gain=1.2))
     ins.append(make_oneshot('snare1', 'Snare1.wav', 50))

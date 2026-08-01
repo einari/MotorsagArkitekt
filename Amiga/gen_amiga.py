@@ -70,6 +70,8 @@ FONT = {
     '-': [0x00, 0x00, 0x00, 0x7E, 0x00, 0x00, 0x00, 0x00],
     ':': [0x00, 0x18, 0x18, 0x00, 0x18, 0x18, 0x00, 0x00],
     '*': [0x00, 0x66, 0x3C, 0xFF, 0x3C, 0x66, 0x00, 0x00],
+    '(': [0x0C, 0x18, 0x30, 0x30, 0x30, 0x18, 0x0C, 0x00],
+    ')': [0x30, 0x18, 0x0C, 0x0C, 0x0C, 0x18, 0x30, 0x00],
 }
 GLYPHS = list(FONT.keys())
 
@@ -172,6 +174,65 @@ def build_dycp_font():
                     w |= 0x80000000 >> x
             out += w.to_bytes(4, 'big')
     return bytes(out)
+
+
+def build_font16():
+    """16x16 scale2x glyphs, 1 word per row (blitter source)."""
+    out = bytearray()
+    for ch in GLYPHS:
+        g = font16(ch)
+        for row in g:
+            w = 0
+            for x, v in enumerate(row):
+                if v:
+                    w |= 0x8000 >> x
+            out += w.to_bytes(2, 'big')
+    return bytes(out)
+
+
+# ---------------------------------------------------------------------------
+#  Lyric cues (bar-synced, same placement as the SID/MOD arrangement)
+#  entry: (bar, big?, keyword, line1, line2)
+# ---------------------------------------------------------------------------
+LYRICS = [
+    (4, 1, 'KATTENE', 'DE LEKER SEG', 'MED MOTORSAG'),
+    (7, 0, '( OOHH )', '', ''),
+    (8, 1, 'HESTENE', 'DE SOEKER', 'ARKITEKTOPPDRAG'),
+    (11, 0, '( OOHH )', '', ''),
+    (12, 0, 'HVORFOR DET?', '', ''),
+    (13, 0, 'DET ER FAKTISK', 'IKKE GODT AA SI', ''),
+    (15, 0, 'NEI NEI NEI', '', ''),
+    (16, 0, 'MEN DET VI VET', 'ER AT ROMSKIP', ''),
+    (17, 1, 'FANTASTISK', 'ER FANTASTISK!', ''),
+    (20, 0, '', '', ''),                       # drop: clear the zone
+    (36, 1, 'KATTENE', 'DE LEKER SEG', 'MED MOTORSAG'),
+    (39, 0, '( OOHH )', '', ''),
+    (40, 1, 'HESTENE', 'DE SOEKER', 'ARKITEKTOPPDRAG'),
+    (43, 0, '( OOHH )', '', ''),
+    (44, 0, 'HVORFOR DET?', '', ''),
+    (45, 0, 'DET ER FAKTISK', 'IKKE GODT AA SI', ''),
+    (47, 0, 'NEI NEI NEI', '', ''),
+    (48, 0, 'MEN DET VI VET', 'ER AT ROMSKIP', ''),
+    (49, 1, 'FANTASTISK', 'ER FANTASTISK!', ''),
+    (51, 0, '', '', ''),                       # finale: instrumental
+    (61, 1, 'TUSEN TAKK', 'ROMSKIP ER FANTASTISK', ''),
+]
+
+
+def build_lyrics():
+    """lyr_bars (byte per cue, $ff end) + packed cue blob:
+    per cue: size.b, kwlen.b, kw ids..., l1len.b, ids..., l2len.b, ids..."""
+    bars = bytes(c[0] for c in LYRICS) + b'\xff'
+    blob = bytearray()
+    offs = []
+    for _, big, kw, l1, l2 in LYRICS:
+        offs.append(len(blob))
+        blob.append(big)
+        for txt in (kw, l1, l2):
+            ids = bytes(GLYPHS.index(ch) for ch in txt)
+            blob.append(len(ids))
+            blob += ids
+    return bars, bytes(blob), offs
 
 
 SCROLLTEXT = ('KATTENE PRESENTERER: MOTORSAG ARKITEKT PAA AMIGA 500!   '
@@ -437,15 +498,22 @@ def main():
         f.write(fmt_words('pal_horses', [0x112, 0x9CF, 0x92E, 0xB6F,
                                          0x6BF, 0xBEF]))
         f.write(fmt_words('pal_ships',  [0x112, 0x8AC, 0x2BF, 0x6DF,
-                                         0xF80, 0xFC9]))
+                                         0xACE, 0xDEF]))   # metallic hull
         f.write(fmt_words('pal_tunnel', [0x000, 0x9CF, 0xF4A, 0xF8C,
                                          0xFE6, 0xFFF]))
         f.write('\n')
 
         f.write(fmt_bytes('dycp_font', build_dycp_font()))
         f.write('\teven\n')
+        f.write(fmt_bytes('font16', build_font16()))
+        f.write('\teven\n')
         text_ids = bytes(GLYPHS.index(c) for c in SCROLLTEXT) + b'\xff'
         f.write(fmt_bytes('scrolltext', text_ids))
+        f.write('\teven\n')
+        lyr_bars, lyr_blob, lyr_offs = build_lyrics()
+        f.write(fmt_bytes('lyr_bars', lyr_bars))
+        f.write(fmt_words('lyr_offs', lyr_offs))
+        f.write(fmt_bytes('lyr_blob', lyr_blob))
         f.write('\teven\n\n')
 
         total = 0

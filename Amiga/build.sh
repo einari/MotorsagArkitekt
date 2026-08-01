@@ -14,9 +14,12 @@ cd "$(dirname "$0")"
 
 STDIR="${ST_DIR:-/Users/einari/Library/Mobile Documents/com~apple~CloudDocs/Amiga/ST-xx Sample Packs}"
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import numpy' 2>/dev/null; then
-    if [ -d "$STDIR/ST-01" ]; then
+    if [ -r "$STDIR/ST-01" ]; then
         echo "[1/4] rebuilding motorsag.mod from the ST-xx packs"
-        python3 gen_mod.py "$STDIR"
+        # the packs may live on iCloud Drive and be unreadable at times;
+        # the committed module is used if that happens
+        python3 gen_mod.py "$STDIR" || \
+            echo "   (sample packs unreadable - keeping committed motorsag.mod)"
     else
         echo "[1/4] ST-xx packs not found - keeping committed motorsag.mod"
     fi

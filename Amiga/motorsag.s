@@ -96,6 +96,30 @@ start:
         move.w  d0,COPJMP1(a6)
         move.w  #$83cf,DMACON(a6)       ; DMAEN+BPL+COP+BLT+AUD0-3
 
+        ; wipe the bob planes (BSS may arrive dirty) and keep a pristine
+        ; copy of the title screen for restoring it when the song loops
+        lea     plane1,a0
+        moveq   #22,d0
+        move.w  #256,d1
+        moveq   #0,d2
+        bsr     blt_clear
+        lea     plane2,a0
+        moveq   #22,d0
+        move.w  #256,d1
+        moveq   #0,d2
+        bsr     blt_clear
+        bsr     blt_wait
+        move.w  #$09f0,BLTCON0(a6)      ; D = A
+        clr.w   BLTCON1(a6)
+        move.w  #$ffff,BLTAFWM(a6)
+        move.w  #$ffff,BLTALWM(a6)
+        clr.w   BLTAMOD(a6)
+        clr.w   BLTDMOD(a6)
+        move.l  #plane0,BLTAPTH(a6)
+        move.l  #logo_src,BLTDPTH(a6)
+        move.w  #256*64+22,BLTSIZE(a6)
+        bsr     blt_wait
+
         bsr     mt_init
         clr.w   frame
         clr.w   bar
@@ -108,6 +132,7 @@ main:
         bsr     wait_vb
         bsr     mt_tick                 ; the module drives everything
         bsr     scene_tick
+        bsr     lyr_tick
         bsr     dycp_tick
         addq.w  #1,frame
         bra     main
@@ -638,15 +663,16 @@ logo_colours:
 ;  The cast: clear planes 1+2 in the action bands, then draw
 ; ===================================================================
 do_cast:
-        ; clear the cast band in both bob planes
-        lea     plane1+CAST_Y0*PLANEB,a0
+        ; clear the whole action area in both bob planes: from the sky
+        ; band (vector ships) down past the bobs' full 42px height
+        lea     plane1+16*PLANEB,a0
         moveq   #22,d0
-        move.w  #CAST_Y1-CAST_Y0,d1
+        move.w  #240,d1
         moveq   #0,d2
         bsr     blt_clear
-        lea     plane2+CAST_Y0*PLANEB,a0
+        lea     plane2+16*PLANEB,a0
         moveq   #22,d0
-        move.w  #CAST_Y1-CAST_Y0,d1
+        move.w  #240,d1
         moveq   #0,d2
         bsr     blt_clear
 
@@ -682,18 +708,25 @@ draw_bob:
         movem.l (sp)+,d0-d1/a1/a3
         rts
 
-; walker position: d5 = index -> d0 x, d1 y (sine walk across 320)
+; walker position: d5 = index -> d0 x, d1 y.  Walkers are spread 96 px
+; apart on a 384-wide loop (so someone is always on screen) and bob on
+; a sine, below the lyric lines.
 walk_pos:
         move.w  frame,d0
+        lsr.w   #1,d0                   ; 1 px every other frame
         move.w  d5,d2
-        mulu    #67,d2
+        mulu    #96,d2
         add.w   d2,d0
-        and.w   #$1ff,d0
-        cmp.w   #288,d0
+.wrap:  cmp.w   #384,d0
         blt.s   .in
-        moveq   #-32,d0                 ; parked off-screen this lap
+        sub.w   #384,d0
+        bra.s   .wrap
+.in:    sub.w   #32,d0                  ; -32 .. 351
+        cmp.w   #320,d0                 ; fully off the right edge?
+        blt.s   .vis                    ; (a blit there would wrap rows)
+        moveq   #-32,d0
         rts
-.in:    move.w  frame,d1
+.vis:   move.w  frame,d1
         lsr.w   #2,d1
         add.w   d5,d1
         and.w   #63,d1
@@ -701,7 +734,7 @@ walk_pos:
         moveq   #0,d2
         move.b  (a0,d1.w),d2
         lsr.w   #2,d2
-        add.w   #CAST_Y0+30,d2
+        add.w   #CAST_Y0+52,d2          ; clear of the lyric lines
         move.w  d2,d1
         rts
 
@@ -845,22 +878,24 @@ cast_ships:
         move.l  a0,BLTAPTH(a6)
         move.l  a0,BLTDPTH(a6)
         move.w  #SHIPBUF_H*64+SHIPBUF_W,BLTSIZE(a6)
-        ; position: swoop across the sky
+        ; position: swoop right-to-left, ships spread over the loop
         move.w  frame,d0
+        lsr.w   #1,d0
         move.w  d7,d1
-        lsl.w   #8,d1
+        mulu    #128,d1
         add.w   d1,d0
-        and.w   #$1ff,d0
-        move.w  #300,d1
-        sub.w   d0,d1                   ; right to left
-        cmp.w   #-48,d1
-        ble.s   .next
-        cmp.w   #288,d1
-        bge.s   .next
+.swrap: cmp.w   #384,d0
+        blt.s   .sin
+        sub.w   #384,d0
+        bra.s   .swrap
+.sin:   move.w  #352,d1
+        sub.w   d0,d1                   ; 352 .. -32
+        cmp.w   #0,d1
+        blt     .next
+        cmp.w   #300,d1
+        bge     .next
         move.w  d1,d0
-        bpl.s   .xo
-        moveq   #0,d0
-.xo:    move.w  frame,d2
+        move.w  frame,d2
         lsr.w   #1,d2
         move.w  d7,d3
         lsl.w   #5,d3
@@ -888,7 +923,7 @@ cast_ships:
         move.w  #SHIPBUF_H,d1
         bsr     blt_img3
 .next:  addq.w  #1,d7
-        cmp.w   #2,d7
+        cmp.w   #3,d7
         bne     .ship
         rts
 
@@ -1003,6 +1038,170 @@ edge_dots:
         rts
 
 ; ===================================================================
+;  Lyrics: bar-synced cues rendered into the title zone of plane 0
+; ===================================================================
+LYRZ_Y0 = 16
+LYRZ_Y1 = 186
+
+lyr_tick:
+        move.w  bar,d0
+        cmp.w   prev_bar,d0
+        beq.s   .done
+        blt.s   .wrapped                ; song looped: bring the title back
+        move.w  d0,prev_bar
+.chk:   move.w  lyr_idx,d1
+        lea     lyr_bars,a0
+        moveq   #0,d2
+        move.b  (a0,d1.w),d2
+        cmp.b   #$ff,d2
+        beq.s   .done
+        cmp.w   d0,d2
+        bne.s   .done
+        bsr     render_lyric
+        addq.w  #1,lyr_idx
+        bra.s   .chk
+.wrapped:
+        move.w  d0,prev_bar
+        clr.w   lyr_idx
+        ; restore the pristine title screen (rows 0..LYRZ_Y1)
+        bsr     blt_wait
+        move.w  #$09f0,BLTCON0(a6)      ; D = A
+        clr.w   BLTCON1(a6)
+        move.w  #$ffff,BLTAFWM(a6)
+        move.w  #$ffff,BLTALWM(a6)
+        clr.w   BLTAMOD(a6)
+        clr.w   BLTDMOD(a6)
+        move.l  #logo_src,BLTAPTH(a6)
+        move.l  #plane0,BLTDPTH(a6)
+        move.w  #LYRZ_Y1*64+22,BLTSIZE(a6)
+.done:  rts
+
+; render the lyric cue lyr_idx (clears the whole zone first)
+render_lyric:
+        movem.l d0-d7/a0-a4,-(sp)
+        lea     plane0+LYRZ_Y0*PLANEB,a0
+        moveq   #22,d0
+        move.w  #LYRZ_Y1-LYRZ_Y0,d1
+        moveq   #0,d2
+        bsr     blt_clear
+        move.w  lyr_idx,d0
+        add.w   d0,d0
+        lea     lyr_offs,a0
+        move.w  (a0,d0.w),d0
+        lea     lyr_blob,a4
+        adda.w  d0,a4
+        moveq   #0,d7
+        move.b  (a4)+,d7                ; big keyword?
+        ; keyword
+        moveq   #0,d6
+        move.b  (a4)+,d6
+        beq.s   .l1
+        tst.w   d7
+        beq.s   .kw16
+        move.w  #44,d5                  ; y
+        moveq   #32,d4                  ; glyph advance
+        bsr     center_x
+        bsr     blit_string32
+        bra.s   .l1
+.kw16:  move.w  #52,d5
+        moveq   #16,d4
+        bsr     center_x
+        bsr     blit_string16
+.l1:    moveq   #0,d6
+        move.b  (a4)+,d6
+        beq.s   .l2
+        move.w  #104,d5
+        moveq   #16,d4
+        bsr     center_x
+        bsr     blit_string16
+.l2:    moveq   #0,d6
+        move.b  (a4)+,d6
+        beq.s   .out
+        move.w  #128,d5
+        moveq   #16,d4
+        bsr     center_x
+        bsr     blit_string16
+.out:   movem.l (sp)+,d0-d7/a0-a4
+        rts
+
+; d6 = length, d4 = advance -> d3 = centred start x
+center_x:
+        move.w  d6,d3
+        mulu    d4,d3
+        move.w  #320,d2
+        sub.w   d3,d2
+        asr.w   #1,d2
+        bpl.s   .ok
+        moveq   #0,d2
+.ok:    move.w  d2,d3
+        rts
+
+; blit d6 glyph ids from (a4) at y=d5, x=d3, 32px font
+blit_string32:
+.c:     moveq   #0,d0
+        move.b  (a4)+,d0
+        lsl.w   #7,d0                   ; * 128 bytes per glyph
+        lea     dycp_font,a0
+        adda.l  d0,a0
+        move.w  d5,d1
+        mulu    #PLANEB,d1
+        lea     plane0,a1
+        adda.l  d1,a1
+        move.w  d3,d0
+        move.w  #32,d1
+        bsr     blt_img
+        add.w   #32,d3
+        subq.w  #1,d6
+        bne.s   .c
+        rts
+
+; blit d6 glyph ids from (a4) at y=d5, x=d3, 16px font
+blit_string16:
+.c:     moveq   #0,d0
+        move.b  (a4)+,d0
+        lsl.w   #5,d0                   ; * 32 bytes per glyph
+        lea     font16,a0
+        adda.l  d0,a0
+        move.w  d5,d1
+        mulu    #PLANEB,d1
+        lea     plane0,a1
+        adda.l  d1,a1
+        move.w  d3,d0
+        move.w  #16,d1
+        bsr     blt_img2
+        add.w   #16,d3
+        subq.w  #1,d6
+        bne.s   .c
+        rts
+
+; OR-blit a 16px-wide, d1-rows glyph (a0) to plane a1 at x=d0 (2-word)
+blt_img2:
+        bsr     blt_wait
+        move.w  d0,d2
+        and.w   #$f,d2
+        ror.w   #4,d2
+        or.w    #$0bfa,d2
+        move.w  d2,BLTCON0(a6)
+        clr.w   BLTCON1(a6)
+        move.w  #$ffff,BLTAFWM(a6)
+        clr.w   BLTALWM(a6)
+        move.w  #-2,BLTAMOD(a6)
+        move.w  #PLANEB-4,BLTCMOD(a6)
+        move.w  #PLANEB-4,BLTDMOD(a6)
+        move.l  a0,BLTAPTH(a6)
+        move.w  d0,d2
+        asr.w   #4,d2
+        add.w   d2,d2
+        lea     (a1,d2.w),a2
+        move.l  a2,BLTCPTH(a6)
+        move.l  a2,BLTDPTH(a6)
+        move.w  d1,d2
+        lsl.w   #6,d2
+        or.w    #2,d2
+        move.w  d2,BLTSIZE(a6)
+        rts
+
+; ===================================================================
 ;  DYCP scroller: every letter on its own sine
 ; ===================================================================
 dycp_tick:
@@ -1071,6 +1270,8 @@ dycp_tick:
 ; ===================================================================
 frame:      dc.w 0
 bar:        dc.w 0
+prev_bar:   dc.w -1
+lyr_idx:    dc.w 0
 scene:      dc.w 0
 cur_scene:  dc.w 0
 gphase:     dc.w 0
@@ -1117,6 +1318,7 @@ plane0:
         even
 
         section chipbss,bss_c
-plane1:  ds.b PLANEB*256
-plane2:  ds.b PLANEB*256
-shipbuf: ds.b SHIPBUF_W*2*SHIPBUF_H
+plane1:   ds.b PLANEB*256
+plane2:   ds.b PLANEB*256
+logo_src: ds.b PLANEB*256      ; pristine title, for restoring on loop
+shipbuf:  ds.b SHIPBUF_W*2*SHIPBUF_H

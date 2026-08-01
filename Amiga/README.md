@@ -51,16 +51,23 @@ smoothly from the right), copper + blitter doing what they were born for:
 - **Vector spaceships** in the drop: CPU-computed polygon outlines
   (one XOR parity dot per scanline), **blitter-filled**, banking as
   they swoop — and the cockpit is a genuine hole in the fill parity.
+- **The lyrics, sung on screen**: every line of the song appears on the
+  bar its vocal lands on — the keyword big (32px) and the lines under
+  it (16px), blitted into the title zone, both verses, then the title
+  is restored when the song loops.
 - **Copper backgrounds** per scene on the shared bar timeline: sine
   copper bars → 4096-colour sunset + rushing horizon grid → breathing
   tunnel rings → rolling rainbow finale.
 
 ```
-bars  0-3   title + gradient        bars 34-50  tunnel, dancers
+bars  0-3   title + gradient        bars 34-50  tunnel, dancers, verse 2
 bars  4-7   copper bars, cats       bars 51-60  rainbow finale, all
-bars  8-19  horses + magic circle   bars 61-63  fade ... and loop
+bars  8-19  horses + magic circle   bars 61-63  TUSEN TAKK ... and loop
 bars 20-33  sunset, vector ships
 ```
+
+Verified by driving FS-UAE (A500, PAL, Kickstart 1.3) from the build
+scripts and reading back screenshots of each scene.
 
 ## Build
 
