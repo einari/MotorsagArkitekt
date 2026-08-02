@@ -1,0 +1,4 @@
+[config]
+amiga_model = A500
+floppy_drive_0 = /Volumes/Code/Playground/Kattene/demo/Amiga/motorsag.adf
+kickstart_file = kick13.rom
