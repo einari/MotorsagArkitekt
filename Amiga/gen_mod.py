@@ -357,14 +357,14 @@ def main():
     ins = []
     ins.append(make_melodic('bass', 'SyntheBass.wav', 17, need['bass'], 58,
                             loop=True))
-    ins.append(make_melodic('arp', 'Squares.wav', 17, need['arp'], 32))
+    ins.append(make_melodic('arp', 'Stabs.wav', 17, need['arp'], 34))
     ins.append(make_melodic('lead', 'Leader.wav', 17, need['lead'], 52,
                             loop=True))
     ins.append(make_melodic('strings', 'AnalogString.wav', 17,
                             need['pad'], 40, loop=True))
     ins.append(make_oneshot('bassdrum2', 'BassDrum2.wav', 62, gain=1.2))
     ins.append(make_oneshot('snare1', 'Snare1.wav', 50))
-    ins.append(make_oneshot('hihat1', 'HiHat1.wav', 26))
+    ins.append(make_oneshot('closehihat', 'CloseHiHat.wav', 36, gain=1.6))
     for nm in ('kattene', 'oohh', 'hestene', 'fantastisk'):
         ins.append(make_vocal(nm, 64))
 
