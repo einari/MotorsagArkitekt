@@ -653,11 +653,13 @@ def main():
         # scene palettes for colours 2..7 (patched at scene switch)
         f.write(fmt_words('pal_cats',   [0x112, 0x9CF, 0xF80, 0xFB6,
                                          0x9CF, 0xBEF]))
-        f.write(fmt_words('pal_horses', [0x4DF, 0x9CF, 0x92E, 0xB6F,
-                                         0x6BF, 0xBEF]))
+        # odd entries (bob pixels over the plane-0 grid/sun overlay)
+        # match the base colours so the cast is opaque, like the web
+        f.write(fmt_words('pal_horses', [0x4DF, 0x4DF, 0x92E, 0x92E,
+                                         0x6BF, 0x6BF]))
         f.write(fmt_words('pal_ships',  [0x235, 0x9CF, 0x67C, 0xACE,
                                          0xBDF, 0xFFF]))   # shaded hull
-        f.write(fmt_words('pal_tunnel', [0x000, 0x9CF, 0xF4A, 0xF8C,
+        f.write(fmt_words('pal_tunnel', [0x3EC, 0x9CF, 0xF4A, 0xF8C,
                                          0xFE6, 0xFFF]))
         f.write('\n')
 

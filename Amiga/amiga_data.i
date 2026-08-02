@@ -386,11 +386,11 @@ scene_of_bar:
 pal_cats:
 	dc.w $0112,$09cf,$0f80,$0fb6,$09cf,$0bef
 pal_horses:
-	dc.w $04df,$09cf,$092e,$0b6f,$06bf,$0bef
+	dc.w $04df,$04df,$092e,$092e,$06bf,$06bf
 pal_ships:
 	dc.w $0235,$09cf,$067c,$0ace,$0bdf,$0fff
 pal_tunnel:
-	dc.w $0000,$09cf,$0f4a,$0f8c,$0fe6,$0fff
+	dc.w $03ec,$09cf,$0f4a,$0f8c,$0fe6,$0fff
 
 dycp_font:
 	dc.b $00,$1f,$f8,$00,$00,$7f,$fe,$00,$01,$ff,$ff,$80,$03,$ff,$ff,$c0

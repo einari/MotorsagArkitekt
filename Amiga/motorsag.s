@@ -131,11 +131,13 @@ poke_ptr:
         addq.l  #8,a1
         rts
 
-wait_vb:
-.w:     move.l  VPOSR(a6),d0
-        and.l   #$1ff00,d0
-        cmp.l   #303<<8,d0
-        bne.s   .w
+wait_vb:                                ; accept lines 303-312 so a frame
+.w:     move.l  VPOSR(a6),d0            ; that runs a touch long only
+        and.l   #$1ff00,d0              ; loses one frame, not the window
+        sub.l   #303<<8,d0
+        bmi.s   .w
+        cmp.l   #10<<8,d0
+        bge.s   .w
         rts
 
 ; ===================================================================
@@ -301,8 +303,7 @@ rect_clear:
 ; d0 = x, d1 = y, d5 = slot
 draw_circle64:
         movem.l d0-d2/a0-a1,-(sp)
-        bsr     slot_clear
-        bsr     slot_store
+        bsr     slot_store              ; (rect already cleared in do_cast)
         move.w  frame,d2
         lsr.w   #3,d2
         and.w   #3,d2
@@ -679,8 +680,7 @@ scene_tick:
         lea     scene_tab,a0
         move.w  (a0,d1.w),d1
         lea     scene_tab,a0
-        jsr     (a0,d1.w)
-        bsr     copy_shadow
+        jsr     (a0,d1.w)               ; each scene owns its copper bg
         bsr     logo_colours
         bsr     do_cast
         rts
@@ -705,7 +705,11 @@ scene_palette:
         bne.s   .n2
         lea     pal_tunnel,a1
         bra.s   .go
-.n2:    cmp.w   #1,d0                   ; verse: horses take over at bar 8
+.n2:    cmp.w   #4,d0                   ; finale: everyone in bright colours
+        bne.s   .n3
+        lea     pal_horses,a1
+        bra.s   .go
+.n3:    cmp.w   #1,d0                   ; verse: horses take over at bar 8
         bne.s   .go
         cmp.w   #8,bar
         blt.s   .go
@@ -718,16 +722,27 @@ scene_palette:
         dbra    d0,.c
         rts
 
-sc_black:
+; zero the 256-line background shadow (helper, no copper writes)
+shadow_black:
         lea     shadow,a0
         move.w  #127,d0
 .c:     clr.l   (a0)+
         dbra    d0,.c
         rts
 
+sc_black:                               ; static scenes: build + poke once
+        move.w  scene,d0
+        cmp.w   shadow_scene,d0
+        beq.s   .done
+        move.w  d0,shadow_scene
+        bsr     shadow_black
+        bra     copy_shadow
+.done:  rts
+
 ; four smooth 32-line copper bars gliding on sines (4096-colour ramps)
 sc_verse:
-        bsr     sc_black
+        move.w  #1,shadow_scene
+        bsr     shadow_black
         lea     sine64,a1
         moveq   #0,d5
 .bar:   move.w  frame,d0
@@ -757,10 +772,17 @@ sc_verse:
         addq.w  #1,d5
         cmp.w   #4,d5
         bne.s   .bar
-        rts
+        bra     copy_shadow
 
-; per-line 4096-colour sunset + ground with accelerating grid lines
+; per-line 4096-colour sunset + ground with accelerating grid lines.
+; The sky and ground are static: built and poked into the copper once,
+; then only the 6 moving grid lines are patched in place per frame.
 sc_drop:
+        move.w  scene,d0
+        cmp.w   shadow_scene,d0
+        beq.s   .light
+        move.w  d0,shadow_scene
+        clr.w   grid_n
         lea     shadow,a0
         lea     sunset,a1
         moveq   #103,d0
@@ -769,16 +791,33 @@ sc_drop:
         move.w  #151,d0
 .gnd:   move.w  #$0102,(a0)+
         dbra    d0,.gnd
-        bra     grid_lines
+        bsr     copy_shadow
+.light: bra     grid_patch
 
-grid_lines:
-        addq.w  #1,gphase
+; undo last frame's grid writes (from crt_shadow), advance the grid,
+; write the new pink pairs straight into the copper list
+grid_patch:
+        lea     coplist,a2
+        lea     copoff_c00,a3
+        lea     crt_shadow,a4
+        move.w  grid_n,d2
+        beq.s   .adv
+        subq.w  #1,d2
+        lea     grid_prev,a0
+.r:     move.w  (a0)+,d1                ; line
+        add.w   d1,d1
+        move.w  (a4,d1.w),d3            ; CRT'd background value
+        move.w  (a3,d1.w),d0            ; copper byte offset
+        move.w  d3,(a2,d0.w)
+        dbra    d2,.r
+.adv:   addq.w  #1,gphase
         cmp.w   #96,gphase
         blt.s   .ok
         clr.w   gphase
-.ok:    lea     persp96,a1
-        lea     shadow+104*2,a0
+.ok:    lea     grid_prev,a0
+        lea     persp96,a1
         moveq   #0,d5
+        moveq   #0,d6                   ; lines written
 .k:     move.w  gphase,d0
         move.w  d5,d1
         lsl.w   #4,d1
@@ -789,69 +828,121 @@ grid_lines:
         bra.s   .m
 .in:    moveq   #0,d1
         move.b  (a1,d0.w),d1
-        add.w   d1,d1
-        move.w  #$f3b,(a0,d1.w)         ; hot pink line, 2 px tall
-        cmp.w   #300,d1
+        add.w   #104,d1                 ; screen line of the pink pair
+        move.w  d1,(a0)+
+        addq.w  #1,d6
+        move.w  d1,d0
+        add.w   d0,d0
+        move.w  (a3,d0.w),d0
+        move.w  #$f3b,(a2,d0.w)         ; hot pink line, 2 px tall
+        cmp.w   #254,d1
         bge.s   .one
-        move.w  #$92c,2(a0,d1.w)
+        addq.w  #1,d1
+        move.w  d1,(a0)+
+        addq.w  #1,d6
+        move.w  d1,d0
+        add.w   d0,d0
+        move.w  (a3,d0.w),d0
+        move.w  #$92c,(a2,d0.w)
 .one:   addq.w  #1,d5
         cmp.w   #6,d5
         bne.s   .k
+        move.w  d6,grid_n
         rts
 
 ; part two: the plasma, straight out of the copper (per-line sines
 ; through the web palette; the whole field breathes and drifts)
 sc_plasma:
-        addq.w  #1,gphase               ; drift
-        lea     shadow,a0
-        lea     plasma_s1,a1
-        lea     plasma_s2,a2
-        lea     plasma_pal,a3
+        move.w  #3,shadow_scene         ; plasma owns the copper directly:
+        addq.w  #1,gphase               ; 128 line pairs, bright + dimmed
+        lea     coplist,a2              ; (the CRT scanline look for free)
+        lea     copoff_c00,a3
+        lea     plasma_s1,a0
+        lea     plasma_s2,a1
+        lea     plasma_pal,a4
         move.w  gphase,d4               ; t1
         move.w  frame,d5
         add.w   d5,d5
         add.w   gphase,d5               ; t2 moves faster
-        moveq   #0,d3
+        moveq   #0,d3                   ; pair 0..127
 .l:     move.w  d3,d0
+        add.w   d0,d0
         add.w   d4,d0
         and.w   #255,d0
         moveq   #0,d1
-        move.b  (a1,d0.w),d1
+        move.b  (a0,d0.w),d1
         move.w  d3,d0
-        add.w   d0,d0
+        lsl.w   #2,d0
         add.w   d5,d0
         and.w   #255,d0
         moveq   #0,d2
-        move.b  (a2,d0.w),d2
+        move.b  (a1,d0.w),d2
         add.w   d2,d1
         lsr.w   #3,d1
         and.w   #31,d1
         add.w   d1,d1
-        move.w  (a3,d1.w),(a0)+
+        move.w  (a4,d1.w),d1            ; colour of this pair
+        cmp.w   #6,d3                   ; vignette top/bottom pairs
+        blt.s   .vig
+        cmp.w   #122,d3
+        blt.s   .wr
+.vig:   lsr.w   #1,d1
+        and.w   #$777,d1
+.wr:    move.w  d3,d0
+        lsl.w   #2,d0                   ; even line's table entry
+        move.w  (a3,d0.w),d2
+        move.w  d1,(a2,d2.w)
+        lsr.w   #1,d1                   ; odd line dimmed
+        and.w   #$777,d1
+        addq.w  #2,d0
+        move.w  (a3,d0.w),d2
+        move.w  d1,(a2,d2.w)
         addq.w  #1,d3
-        cmp.w   #256,d3
+        cmp.w   #128,d3
         bne.s   .l
         rts
 
-; finale: rolling rainbow sky over the grid ground
+; finale: rolling rainbow sky over the grid ground.  The ground is
+; poked once; the 52 sky pairs and the grid are patched per frame.
 sc_finale:
-        lea     shadow,a0
-        lea     rainbow64,a1
-        move.w  frame,d2
-        moveq   #0,d0
-.f:     move.w  d0,d1
-        lsr.w   #1,d1
-        add.w   d2,d1
-        and.w   #63,d1
-        add.w   d1,d1
-        move.w  (a1,d1.w),(a0)+
-        addq.w  #1,d0
-        cmp.w   #104,d0
-        bne.s   .f
+        move.w  scene,d0
+        cmp.w   shadow_scene,d0
+        beq.s   .light
+        move.w  d0,shadow_scene
+        clr.w   grid_n
+        bsr     shadow_black
+        lea     shadow+104*2,a0
         move.w  #151,d0
 .gnd:   move.w  #$0102,(a0)+
         dbra    d0,.gnd
-        bra     grid_lines
+        bsr     copy_shadow
+.light: lea     coplist,a2
+        lea     copoff_c00,a3
+        lea     rainbow64,a1
+        move.w  frame,d2
+        moveq   #0,d3                   ; sky pair 0..51
+.f:     move.w  d3,d1
+        add.w   d2,d1
+        and.w   #63,d1
+        add.w   d1,d1
+        move.w  (a1,d1.w),d0            ; pair colour
+        cmp.w   #6,d3
+        bge.s   .nv
+        lsr.w   #1,d0                   ; vignette at the top
+        and.w   #$777,d0
+.nv:    move.w  d3,d1
+        lsl.w   #2,d1                   ; even line's table entry
+        move.w  (a3,d1.w),d4
+        move.w  d0,(a2,d4.w)
+        lsr.w   #1,d0                   ; odd line dimmed
+        and.w   #$777,d0
+        addq.w  #2,d1
+        move.w  (a3,d1.w),d4
+        move.w  d0,(a2,d4.w)
+        addq.w  #1,d3
+        cmp.w   #52,d3
+        bne.s   .f
+        bra     grid_patch
 
 ; Copy the 256-line shadow into the copper, applying the CRT pass on
 ; the way: odd scanlines are dimmed and the top/bottom edges get a
@@ -860,7 +951,8 @@ copy_shadow:
         lea     shadow,a0
         lea     copoff_c00,a1
         lea     coplist,a2
-        moveq   #0,d3
+        lea     crt_shadow,a3           ; final values kept for later
+        moveq   #0,d3                   ; in-place patches (grid lines)
 .l:     move.w  (a0)+,d2
         move.w  d3,d1
         and.w   #1,d1
@@ -873,7 +965,8 @@ copy_shadow:
         blt.s   .keep
 .vig:   lsr.w   #1,d2                   ; vignette
         and.w   #$777,d2
-.keep:  move.w  (a1)+,d1
+.keep:  move.w  d2,(a3)+
+        move.w  (a1)+,d1
         move.w  d2,(a2,d1.w)
         addq.w  #1,d3
         cmp.w   #256,d3
@@ -964,6 +1057,14 @@ do_cast:
         lea     plane0b+16*PLANEB,a1
         bsr     copy_ovl
 .same:
+        ; wipe every slot's previous rectangle BEFORE anything draws —
+        ; clearing inside the draw calls let one object's clear bite
+        ; a neighbour that had already drawn this frame
+        moveq   #0,d5
+.ca:    bsr     slot_clear
+        addq.w  #1,d5
+        cmp.w   #8,d5
+        bne.s   .ca
         move.w  scene,d0
         cmp.w   #1,d0
         beq     cast_verse
@@ -978,8 +1079,7 @@ do_cast:
 ; ---- walking bob: d0=x d1=y, d5=slot, a3=frame ptrs (p1/p2) ----
 draw_bob:
         movem.l d0-d1/a1/a3,-(sp)
-        bsr     slot_clear              ; wipe where this slot last drew
-        bsr     slot_store
+        bsr     slot_store              ; (rect already cleared in do_cast)
         move.l  (a3),a0                 ; plane-1 image
         move.w  d1,d2
         mulu    #PLANEB,d2
@@ -1133,9 +1233,21 @@ cast_finale:
         move.w  d5,d2
         and.w   #1,d2
         bne.s   .fh
+        move.w  frame,d2                ; cats: 4-frame saw animation
+        lsr.w   #2,d2
+        add.w   d5,d2
+        and.w   #3,d2
+        lsl.w   #3,d2
         lea     cat_frames,a3
+        adda.w  d2,a3
         bra.s   .fd
-.fh:    lea     horse_frames,a3
+.fh:    move.w  frame,d2                ; horses: 2-frame trot
+        lsr.w   #3,d2
+        add.w   d5,d2
+        and.w   #1,d2
+        lsl.w   #3,d2
+        lea     horse_frames,a3
+        adda.w  d2,a3
 .fd:    bsr     draw_bob
 .cn:    addq.w  #1,d5
         cmp.w   #4,d5
@@ -1169,6 +1281,7 @@ cast_finale:
 ; ===================================================================
 SHIPBUF_W = 4                   ; words (64 px)
 SHIPBUF_H = 56
+CLSBUF    = SHIPBUF_W*2*SHIPBUF_H
 
 ; ===================================================================
 ;  The web version's ships, for real: the Spaceships.ts mesh (cone
@@ -1185,28 +1298,80 @@ cast_ships:
         moveq   #0,d7
 .ship:  bsr     ship_pose               ; angles + position for ship d7
         tst.w   ship_on
-        beq.s   .off
-        bsr     ship_transform          ; all vertices -> poly_xy
+        beq     .off
         move.w  d7,d5
-        bsr     slot_clear
         move.w  ship_x,d0
         move.w  ship_y,d1
         bsr     slot_store
+        ; the image is re-rendered every 4th frame (position still
+        ; moves at 50 Hz; the pose lags a few frames, invisibly)
+        move.w  frame,d0
+        and.w   #3,d0
+        move.w  d7,d1
+        add.w   d1,d1
+        cmp.w   d1,d0
+        bne.s   .place
+        ; queue the three buffer clears, then transform on the CPU
+        ; while the blitter works through them
+        moveq   #0,d6
+.clr:   bsr     set_sbuf
+        move.l  cur_sbuf,a0
+        moveq   #SHIPBUF_W,d0
+        move.w  #SHIPBUF_H,d1
+        moveq   #0,d2
+        bsr     blt_clear
+        addq.w  #1,d6
+        cmp.w   #3,d6
+        bne.s   .clr
+        bsr     ship_transform          ; all vertices -> poly_xy
         moveq   #0,d6                   ; colour class 0/1/2
-.cls:   bsr     class_render
-        tst.w   cls_any
-        beq.s   .nb
-        move.w  d6,d0
-        bsr     class_place
-.nb:    addq.w  #1,d6
+.cls:   bsr     set_sbuf
+        bsr     class_render
+        move.w  d7,d0
+        add.w   d0,d0
+        add.w   d7,d0
+        add.w   d6,d0
+        add.w   d0,d0
+        lea     cls_flags,a0
+        move.w  cls_any,(a0,d0.w)
+        addq.w  #1,d6
         cmp.w   #3,d6
         bne.s   .cls
+.place: moveq   #0,d6
+.pl:    move.w  d7,d0
+        add.w   d0,d0
+        add.w   d7,d0
+        add.w   d6,d0
+        add.w   d0,d0
+        lea     cls_flags,a0
+        tst.w   (a0,d0.w)
+        beq.s   .np
+        bsr     set_sbuf
+        move.w  d6,d0
+        bsr     class_place
+.np:    addq.w  #1,d6
+        cmp.w   #3,d6
+        bne.s   .pl
         bra.s   .next
 .off:   move.w  d7,d5
         bsr     slot_hide
 .next:  addq.w  #1,d7
         cmp.w   #NSHIPS,d7
         bne     .ship
+        rts
+
+; cur_sbuf = the render buffer of ship d7, class d6
+set_sbuf:
+        movem.l d0/a0,-(sp)
+        move.w  d7,d0
+        add.w   d0,d0
+        add.w   d7,d0
+        add.w   d6,d0
+        mulu    #CLSBUF,d0
+        lea     shipbufs,a0
+        adda.l  d0,a0
+        move.l  a0,cur_sbuf
+        movem.l (sp)+,d0/a0
         rts
 
 ; ---- advance the path counters, derive pos / heading / bank ----
@@ -1480,15 +1645,9 @@ sincos:
         rts
 
 ; ---- XOR-outline and fill every visible face of class d6 ----
-class_render:
+class_render:                           ; buffer pre-cleared by caller
         movem.l d0-d7/a0-a3,-(sp)
         clr.w   cls_any
-        lea     shipbuf,a0
-        moveq   #SHIPBUF_W,d0
-        move.w  #SHIPBUF_H,d1
-        moveq   #0,d2
-        bsr     blt_clear
-        bsr     blt_wait
         lea     ship_faces,a3
         move.w  #SHIP_NFACE,d7
 .f:     moveq   #0,d4
@@ -1556,7 +1715,8 @@ class_render:
         move.w  #$ffff,BLTALWM(a6)
         clr.w   BLTAMOD(a6)
         clr.w   BLTDMOD(a6)
-        lea     shipbuf+SHIPBUF_W*2*SHIPBUF_H-2,a0
+        move.l  cur_sbuf,a0
+        lea     CLSBUF-2(a0),a0
         move.l  a0,BLTAPTH(a6)
         move.l  a0,BLTDPTH(a6)
         move.w  #SHIPBUF_H*64+SHIPBUF_W,BLTSIZE(a6)
@@ -1614,7 +1774,7 @@ edge_dots:
         divs    d5,d4                   ; x step, 8.8
         move.w  d0,d2
         asl.w   #8,d2                   ; x accumulator, 8.8
-        lea     shipbuf,a0
+        move.l  cur_sbuf,a0
         move.w  d1,d0                   ; start row pointer (one mul)
         mulu    #SHIPBUF_W*2,d0
         adda.w  d0,a0
@@ -1637,7 +1797,7 @@ edge_dots:
 
 ; ---- OR the filled face buffer into plane a1 at the ship position ----
 face_place:
-        lea     shipbuf,a0
+        move.l  cur_sbuf,a0
         move.w  ship_y,d2
         mulu    #PLANEB,d2
         adda.l  d2,a1
@@ -1938,6 +2098,12 @@ buf0:       dc.l plane0a,plane0b
 buf1:       dc.l plane1a,plane1b
 buf2:       dc.l plane2a,plane2b
 prevs:      ds.b 64             ; 2 banks x 8 slots x (x.w, y.w)
+cur_sbuf:   dc.l 0              ; render buffer of the ship class in hand
+cls_flags:  ds.w 6              ; per ship+class: cached image non-empty
+shadow_scene: dc.w -1           ; scene the copper background is built for
+grid_n:     dc.w 0              ; copper lines patched by the grid
+grid_prev:  ds.w 12
+crt_shadow: ds.w 256            ; CRT-processed value of every bg line
 mt_songpos: dc.w 0
 mt_row:     dc.w 0
 mt_counter: dc.w 0
@@ -1947,7 +2113,7 @@ mt_patterns: dc.l 0
 mt_samples: ds.b 31*14
 mt_chan:    ds.b MC_SIZE*4
 shadow:     ds.w 256
-poly_xy:    ds.w 32
+poly_xy:    ds.w 64             ; SHIP_NVERT (23) x/y pairs + margin
 
 cat_frames:
         dc.l bob_cat0_1,bob_cat0_2,bob_cat1_1,bob_cat1_2
@@ -1989,4 +2155,4 @@ plane2a:  ds.b PLANEB*256
 plane0b:  ds.b PLANEB*256
 plane1b:  ds.b PLANEB*256
 plane2b:  ds.b PLANEB*256
-shipbuf:  ds.b SHIPBUF_W*2*SHIPBUF_H
+shipbufs: ds.b CLSBUF*6         ; 2 ships x 3 colour classes
